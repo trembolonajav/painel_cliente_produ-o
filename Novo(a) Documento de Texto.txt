@@ -1,0 +1,3104 @@
+Etapa 1 foi executada e já está funcional no seu workspace.
+
+Entregue agora
+
+Backend Java Spring Boot criado em backend/pom.xml
+Configuração de produção/dev em application.yml e application-dev.yml
+Banco Postgres via Docker em docker-compose.yml
+Migração Flyway V1 com tabelas office_users, clients, cases em V1__create_core_tables.sql
+Auth escritório com JWT:
+POST /auth/login
+GET /auth/me
+GET /health
+em AuthController.java
+Segurança JWT + CORS em SecurityConfig.java
+Seed dev idempotente de admin em DevDataSeeder.java
+Documentação operacional em backend/README.md
+Status de execução
+
+Postgres: ativo no Docker (localhost:5433)
+API: ativa em http://localhost:8080
+Validado com sucesso:
+GET /health -> ok
+POST /auth/login com admin@painel.local / Admin@123
+GET /auth/me com bearer token retornando usuário ADMIN
+Decisões já aplicadas para produção
+
+Flyway versionado (sem criação “no braço”)
+ddl-auto: validate (evita drift de schema)
+regra sensível fora do frontend
+base pronta para RBAC e portal tokenizado
+Próxima etapa recomendada (eu já posso implementar agora)
+
+CRUD real de clients e cases + case_members (permissão por caso).
+portal_link_tokens com regra “1 link ativo por caso”.
+Fluxo cliente token + cpfLast3 em POST /client-portal/session.
+Endpoints do portal filtrando só CLIENT_VISIBLE.
+
+Vou avançar para a Etapa 2 implementando CRUD de clients e cases com controle de acesso por role e por membro do caso (case_members). Primeiro vou mapear o código atual e depois aplicar as migrações/endereços de API.
+
+Ran Get-ChildItem -Recurse -File backend\src\main\java | ForEach-Object { $_.FullName }
+
+
+Ran Get-ChildItem -Recurse -File backend\src\main\resources | ForEach-Object { $_.FullName }
+
+
+Ran Get-Content backend\src\main\java\com\painel\api\common\ApiExceptionHandler.java for 1s
+
+
+Ran Get-Content backend\src\main\java\com\painel\api\casefile\CaseFile.java for 1s
+
+
+Ran Get-Content backend\src\main\java\com\painel\api\user\OfficeUser.java for 1s
+
+
+Vou aplicar a primeira parte agora: case_members no banco e no domínio Java, incluindo consultas para filtrar casos por membro sem perder performance.
+
+Created file
+V2__create_case_members.sql
++10
+-0
+
+CREATE TABLE case_members (
+    case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES office_users(id) ON DELETE CASCADE,
+    permission VARCHAR(20) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (case_id, user_id)
+);
+
+CREATE INDEX idx_case_members_user_id ON case_members(user_id);
+CREATE INDEX idx_case_members_case_id ON case_members(case_id);
+Created file
+CaseMemberPermission.java
++7
+-0
+
+package com.painel.api.casefile;
+
+public enum CaseMemberPermission {
+    OWNER,
+    EDITOR,
+    VIEWER
+}
+Created file
+CaseMemberId.java
++49
+-0
+
+package com.painel.api.casefile;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
+import java.io.Serializable;
+import java.util.Objects;
+import java.util.UUID;
+
+@Embeddable
+public class CaseMemberId implements Serializable {
+
+    @Column(name = "case_id")
+    private UUID caseId;
+
+    @Column(name = "user_id")
+    private UUID userId;
+
+    public CaseMemberId() {
+    }
+
+    public CaseMemberId(UUID caseId, UUID userId) {
+        this.caseId = caseId;
+        this.userId = userId;
+    }
+
+    public UUID getCaseId() {
+        return caseId;
+    }
+
+    public UUID getUserId() {
+        return userId;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof CaseMemberId that)) {
+            return false;
+        }
+        return Objects.equals(caseId, that.caseId) && Objects.equals(userId, that.userId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(caseId, userId);
+    }
+}
+Created file
+CaseMember.java
++80
+-0
+
+package com.painel.api.casefile;
+
+import com.painel.api.user.OfficeUser;
+import jakarta.persistence.Column;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "case_members")
+public class CaseMember {
+
+    @EmbeddedId
+    private CaseMemberId id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @MapsId("caseId")
+    @JoinColumn(name = "case_id", nullable = false)
+    private CaseFile caseFile;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @MapsId("userId")
+    @JoinColumn(name = "user_id", nullable = false)
+    private OfficeUser user;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private CaseMemberPermission permission;
+
+    @Column(name = "created_at", nullable = false)
+    private OffsetDateTime createdAt;
+
+    @PrePersist
+    void prePersist() {
+        if (id == null) {
+            id = new CaseMemberId(caseFile.getId(), user.getId());
+        }
+        createdAt = OffsetDateTime.now();
+    }
+
+    public CaseMemberId getId() {
+        return id;
+    }
+
+    public CaseFile getCaseFile() {
+        return caseFile;
+    }
+
+    public void setCaseFile(CaseFile caseFile) {
+        this.caseFile = caseFile;
+    }
+
+    public OfficeUser getUser() {
+        return user;
+    }
+
+    public void setUser(OfficeUser user) {
+        this.user = user;
+    }
+
+    public CaseMemberPermission getPermission() {
+        return permission;
+    }
+
+    public void setPermission(CaseMemberPermission permission) {
+        this.permission = permission;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+}
+Created file
+CaseMemberRepository.java
++13
+-0
+
+package com.painel.api.casefile;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface CaseMemberRepository extends JpaRepository<CaseMember, CaseMemberId> {
+    List<CaseMember> findByCaseFileId(UUID caseId);
+    Optional<CaseMember> findByCaseFileIdAndUserId(UUID caseId, UUID userId);
+    boolean existsByCaseFileIdAndUserId(UUID caseId, UUID userId);
+    void deleteByCaseFileIdAndUserId(UUID caseId, UUID userId);
+}
+Edited file
+CaseFileRepository.java
++29
+-1
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+
+import java.util.List;
+
+public interface CaseFileRepository extends JpaRepository<CaseFile, UUID> {
+}
+    @Query("""
+            select c
+            from CaseFile c
+            join fetch c.client cl
+            where (:status is null or c.status = :status)
+              and (:clientId is null or cl.id = :clientId)
+              and (:search is null or lower(c.title) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+            order by c.updatedAt desc
+            """)
+    List<CaseFile> searchAll(CaseStatus status, UUID clientId, String search);
+
+    @Query("""
+            select distinct c
+            from CaseFile c
+            join fetch c.client cl
+            join CaseMember cm on cm.caseFile.id = c.id
+            where cm.user.id = :userId
+              and (:status is null or c.status = :status)
+              and (:clientId is null or cl.id = :clientId)
+              and (:search is null or lower(c.title) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+            order by c.updatedAt desc
+            """)
+    List<CaseFile> searchByMember(UUID userId, CaseStatus status, UUID clientId, String search);
+}
+Edited file
+CaseFileRepository.java
++7
+-2
+
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+            """)
+    List<CaseFile> searchAll(CaseStatus status, UUID clientId, String search);
+    List<CaseFile> searchAll(@Param("status") CaseStatus status, @Param("clientId") UUID clientId, @Param("search") String search);
+
+            """)
+    List<CaseFile> searchByMember(UUID userId, CaseStatus status, UUID clientId, String search);
+    List<CaseFile> searchByMember(
+            @Param("userId") UUID userId,
+            @Param("status") CaseStatus status,
+            @Param("clientId") UUID clientId,
+            @Param("search") String search);
+}
+Edited file
+ClientRepository.java
++13
+-1
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import java.util.List;
+
+public interface ClientRepository extends JpaRepository<Client, UUID> {
+}
+    @Query("""
+            select c
+            from Client c
+            where (:search is null or lower(c.name) like lower(concat('%', :search, '%'))
+                or lower(coalesce(c.email, '')) like lower(concat('%', :search, '%'))
+                or lower(coalesce(c.phone, '')) like lower(concat('%', :search, '%')))
+            order by c.updatedAt desc
+            """)
+    List<Client> search(@Param("search") String search);
+}
+A modelagem de membros foi adicionada. Em seguida vou colocar a camada de autorização (roles e acesso por membro/owner) e então plugar os controllers de clients e cases.
+
+Created file
+ForbiddenException.java
++7
+-0
+
+package com.painel.api.common;
+
+public class ForbiddenException extends RuntimeException {
+    public ForbiddenException(String message) {
+        super(message);
+    }
+}
+Created file
+NotFoundException.java
++7
+-0
+
+package com.painel.api.common;
+
+public class NotFoundException extends RuntimeException {
+    public NotFoundException(String message) {
+        super(message);
+    }
+}
+Edited file
+ApiExceptionHandler.java
++21
+-1
+
+    }
+}
+
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, Object> handleForbidden(ForbiddenException ex) {
+        return Map.of(
+                "timestamp", OffsetDateTime.now().toString(),
+                "status", 403,
+                "error", "forbidden",
+                "message", ex.getMessage());
+    }
+
+    @ExceptionHandler(NotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, Object> handleNotFound(NotFoundException ex) {
+        return Map.of(
+                "timestamp", OffsetDateTime.now().toString(),
+                "status", 404,
+                "error", "not_found",
+                "message", ex.getMessage());
+    }
+}
+Created file
+AuthorizationService.java
++65
+-0
+
+package com.painel.api.auth;
+
+import com.painel.api.casefile.CaseMemberPermission;
+import com.painel.api.casefile.CaseMemberRepository;
+import com.painel.api.common.ForbiddenException;
+import com.painel.api.user.OfficeRole;
+import com.painel.api.user.OfficeUser;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AuthorizationService {
+
+    private final CaseMemberRepository caseMemberRepository;
+
+    public AuthorizationService(CaseMemberRepository caseMemberRepository) {
+        this.caseMemberRepository = caseMemberRepository;
+    }
+
+    public boolean isAdmin(OfficeUser user) {
+        return user.getRole() == OfficeRole.ADMIN;
+    }
+
+    public void requireAnyRole(OfficeUser user, OfficeRole... roles) {
+        for (OfficeRole role : roles) {
+            if (user.getRole() == role) {
+                return;
+            }
+        }
+        throw new ForbiddenException("Sem permissao para esta acao");
+    }
+
+    public void requireCaseReadAccess(OfficeUser user, UUID caseId) {
+        if (isAdmin(user) || caseMemberRepository.existsByCaseFileIdAndUserId(caseId, user.getId())) {
+            return;
+        }
+        throw new ForbiddenException("Sem acesso a este caso");
+    }
+
+    public void requireCaseWriteAccess(OfficeUser user, UUID caseId) {
+        if (isAdmin(user)) {
+            return;
+        }
+        var permission = caseMemberRepository.findByCaseFileIdAndUserId(caseId, user.getId())
+                .map(member -> member.getPermission())
+                .orElseThrow(() -> new ForbiddenException("Sem acesso a este caso"));
+
+        if (permission == CaseMemberPermission.OWNER || permission == CaseMemberPermission.EDITOR) {
+            return;
+        }
+        throw new ForbiddenException("Sem permissao de edicao neste caso");
+    }
+
+    public void requireCaseOwnerOrAdmin(OfficeUser user, UUID caseId) {
+        if (isAdmin(user)) {
+            return;
+        }
+        var permission = caseMemberRepository.findByCaseFileIdAndUserId(caseId, user.getId())
+                .map(member -> member.getPermission())
+                .orElseThrow(() -> new ForbiddenException("Sem acesso a este caso"));
+        if (permission != CaseMemberPermission.OWNER) {
+            throw new ForbiddenException("Apenas owner pode gerenciar membros");
+        }
+    }
+}
+Vou criar os endpoints de clientes com busca e atualização, já com validação de CPF final (cpfLast3) e regra de role para escrita.
+
+Created file
+ClientRequest.java
++15
+-0
+
+package com.painel.api.client;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+public record ClientRequest(
+        @NotBlank @Size(max = 150) String name,
+        @Size(max = 255) String cpfEncrypted,
+        @Pattern(regexp = "^\\d{3}$", message = "cpfLast3 deve ter 3 digitos") String cpfLast3,
+        @Size(max = 255) String email,
+        @Size(max = 30) String phone,
+        String notes
+) {
+}
+Created file
+ClientResponse.java
++16
+-0
+
+package com.painel.api.client;
+
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public record ClientResponse(
+        UUID id,
+        String name,
+        String cpfLast3,
+        String email,
+        String phone,
+        String notes,
+        OffsetDateTime createdAt,
+        OffsetDateTime updatedAt
+) {
+}
+Created file
+ClientService.java
++88
+-0
+
+package com.painel.api.client;
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.common.NotFoundException;
+import com.painel.api.user.OfficeRole;
+import com.painel.api.user.OfficeUser;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class ClientService {
+
+    private final ClientRepository clientRepository;
+    private final AuthorizationService authorizationService;
+
+    public ClientService(ClientRepository clientRepository, AuthorizationService authorizationService) {
+        this.clientRepository = clientRepository;
+        this.authorizationService = authorizationService;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ClientResponse> list(String search, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        return clientRepository.search(normalizeFilter(search)).stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ClientResponse getById(UUID id, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        return toResponse(findClient(id));
+    }
+
+    @Transactional
+    public ClientResponse create(ClientRequest request, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT);
+        Client client = new Client();
+        apply(client, request);
+        return toResponse(clientRepository.save(client));
+    }
+
+    @Transactional
+    public ClientResponse update(UUID id, ClientRequest request, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT);
+        Client client = findClient(id);
+        apply(client, request);
+        return toResponse(clientRepository.save(client));
+    }
+
+    private Client findClient(UUID id) {
+        return clientRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Cliente nao encontrado"));
+    }
+
+    private void apply(Client client, ClientRequest request) {
+        client.setName(request.name().trim());
+        client.setCpfEncrypted(trimToNull(request.cpfEncrypted()));
+        client.setCpfLast3(trimToNull(request.cpfLast3()));
+        client.setEmail(trimToNull(request.email()));
+        client.setPhone(trimToNull(request.phone()));
+        client.setNotes(trimToNull(request.notes()));
+    }
+
+    private ClientResponse toResponse(Client client) {
+        return new ClientResponse(
+                client.getId(),
+                client.getName(),
+                client.getCpfLast3(),
+                client.getEmail(),
+                client.getPhone(),
+                client.getNotes(),
+                client.getCreatedAt(),
+                client.getUpdatedAt());
+    }
+
+    private String normalizeFilter(String value) {
+        return trimToNull(value);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+}
+Created file
+ClientController.java
++61
+-0
+
+package com.painel.api.client;
+
+import com.painel.api.user.OfficeUser;
+import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/clients")
+public class ClientController {
+
+    private final ClientService clientService;
+
+    public ClientController(ClientService clientService) {
+        this.clientService = clientService;
+    }
+
+    @GetMapping
+    @ResponseStatus(HttpStatus.OK)
+    public List<ClientResponse> list(
+            @RequestParam(required = false) String search,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return clientService.list(search, actor);
+    }
+
+    @GetMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public ClientResponse getById(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return clientService.getById(id, actor);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ClientResponse create(
+            @Valid @RequestBody ClientRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return clientService.create(request, actor);
+    }
+
+    @PatchMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public ClientResponse update(
+            @PathVariable UUID id,
+            @Valid @RequestBody ClientRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return clientService.update(id, request, actor);
+    }
+}
+Agora vou implementar os endpoints de casos e membros (/cases, /cases/{id}, /cases/{id}/members) com filtro por membro para não expor casos fora de permissão.
+
+Created file
+CaseRequest.java
++16
+-0
+
+package com.painel.api.casefile;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.util.UUID;
+
+public record CaseRequest(
+        @NotNull UUID clientId,
+        @NotBlank @Size(max = 200) String title,
+        @Size(max = 100) String caseNumber,
+        @Size(max = 80) String area,
+        @NotNull CaseStatus status,
+        @NotNull CasePriority priority
+) {
+}
+Created file
+CaseMemberUpsertRequest.java
++10
+-0
+
+package com.painel.api.casefile;
+
+import jakarta.validation.constraints.NotNull;
+import java.util.UUID;
+
+public record CaseMemberUpsertRequest(
+        @NotNull UUID userId,
+        @NotNull CaseMemberPermission permission
+) {
+}
+Created file
+CaseMemberResponse.java
++13
+-0
+
+package com.painel.api.casefile;
+
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public record CaseMemberResponse(
+        UUID userId,
+        String userName,
+        String userEmail,
+        CaseMemberPermission permission,
+        OffsetDateTime createdAt
+) {
+}
+Created file
+CaseResponse.java
++20
+-0
+
+package com.painel.api.casefile;
+
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public record CaseResponse(
+        UUID id,
+        UUID clientId,
+        String clientName,
+        String title,
+        String caseNumber,
+        String area,
+        CaseStatus status,
+        CasePriority priority,
+        UUID createdBy,
+        OffsetDateTime createdAt,
+        OffsetDateTime updatedAt,
+        OffsetDateTime closedAt
+) {
+}
+Created file
+CaseService.java
++162
+-0
+
+package com.painel.api.casefile;
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.client.Client;
+import com.painel.api.client.ClientRepository;
+import com.painel.api.common.NotFoundException;
+import com.painel.api.user.OfficeRole;
+import com.painel.api.user.OfficeUser;
+import com.painel.api.user.OfficeUserRepository;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class CaseService {
+
+    private final CaseFileRepository caseFileRepository;
+    private final CaseMemberRepository caseMemberRepository;
+    private final ClientRepository clientRepository;
+    private final OfficeUserRepository officeUserRepository;
+    private final AuthorizationService authorizationService;
+
+    public CaseService(
+            CaseFileRepository caseFileRepository,
+            CaseMemberRepository caseMemberRepository,
+            ClientRepository clientRepository,
+            OfficeUserRepository officeUserRepository,
+            AuthorizationService authorizationService) {
+        this.caseFileRepository = caseFileRepository;
+        this.caseMemberRepository = caseMemberRepository;
+        this.clientRepository = clientRepository;
+        this.officeUserRepository = officeUserRepository;
+        this.authorizationService = authorizationService;
+    }
+
+    @Transactional(readOnly = true)
+    public List<CaseResponse> list(String search, CaseStatus status, UUID clientId, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        String normalizedSearch = trimToNull(search);
+        List<CaseFile> cases = authorizationService.isAdmin(actor)
+                ? caseFileRepository.searchAll(status, clientId, normalizedSearch)
+                : caseFileRepository.searchByMember(actor.getId(), status, clientId, normalizedSearch);
+        return cases.stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public CaseResponse getById(UUID caseId, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        authorizationService.requireCaseReadAccess(actor, caseId);
+        return toResponse(findCase(caseId));
+    }
+
+    @Transactional
+    public CaseResponse create(CaseRequest request, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER);
+        Client client = clientRepository.findById(request.clientId())
+                .orElseThrow(() -> new NotFoundException("Cliente nao encontrado"));
+
+        CaseFile caseFile = new CaseFile();
+        caseFile.setClient(client);
+        caseFile.setCreatedBy(actor);
+        apply(caseFile, request);
+        CaseFile saved = caseFileRepository.save(caseFile);
+
+        upsertMember(saved, actor, CaseMemberPermission.OWNER);
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public CaseResponse update(UUID caseId, CaseRequest request, OfficeUser actor) {
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        CaseFile caseFile = findCase(caseId);
+        Client client = clientRepository.findById(request.clientId())
+                .orElseThrow(() -> new NotFoundException("Cliente nao encontrado"));
+
+        caseFile.setClient(client);
+        apply(caseFile, request);
+        return toResponse(caseFileRepository.save(caseFile));
+    }
+
+    @Transactional(readOnly = true)
+    public List<CaseMemberResponse> listMembers(UUID caseId, OfficeUser actor) {
+        authorizationService.requireCaseReadAccess(actor, caseId);
+        findCase(caseId);
+        return caseMemberRepository.findByCaseFileId(caseId).stream()
+                .map(member -> new CaseMemberResponse(
+                        member.getUser().getId(),
+                        member.getUser().getName(),
+                        member.getUser().getEmail(),
+                        member.getPermission(),
+                        member.getCreatedAt()))
+                .toList();
+    }
+
+    @Transactional
+    public CaseMemberResponse upsertMember(UUID caseId, CaseMemberUpsertRequest request, OfficeUser actor) {
+        authorizationService.requireCaseOwnerOrAdmin(actor, caseId);
+        CaseFile caseFile = findCase(caseId);
+        OfficeUser user = officeUserRepository.findById(request.userId())
+                .orElseThrow(() -> new NotFoundException("Usuario nao encontrado"));
+        CaseMember saved = upsertMember(caseFile, user, request.permission());
+        return new CaseMemberResponse(
+                saved.getUser().getId(),
+                saved.getUser().getName(),
+                saved.getUser().getEmail(),
+                saved.getPermission(),
+                saved.getCreatedAt());
+    }
+
+    private CaseMember upsertMember(CaseFile caseFile, OfficeUser user, CaseMemberPermission permission) {
+        CaseMember member = caseMemberRepository.findByCaseFileIdAndUserId(caseFile.getId(), user.getId())
+                .orElseGet(CaseMember::new);
+        member.setCaseFile(caseFile);
+        member.setUser(user);
+        member.setPermission(permission);
+        return caseMemberRepository.save(member);
+    }
+
+    private CaseFile findCase(UUID caseId) {
+        return caseFileRepository.findById(caseId)
+                .orElseThrow(() -> new NotFoundException("Caso nao encontrado"));
+    }
+
+    private void apply(CaseFile caseFile, CaseRequest request) {
+        caseFile.setTitle(request.title().trim());
+        caseFile.setCaseNumber(trimToNull(request.caseNumber()));
+        caseFile.setArea(trimToNull(request.area()));
+        caseFile.setStatus(request.status());
+        caseFile.setPriority(request.priority());
+        if (request.status() == CaseStatus.CLOSED && caseFile.getClosedAt() == null) {
+            caseFile.setClosedAt(OffsetDateTime.now());
+        } else if (request.status() != CaseStatus.CLOSED) {
+            caseFile.setClosedAt(null);
+        }
+    }
+
+    private CaseResponse toResponse(CaseFile caseFile) {
+        return new CaseResponse(
+                caseFile.getId(),
+                caseFile.getClient().getId(),
+                caseFile.getClient().getName(),
+                caseFile.getTitle(),
+                caseFile.getCaseNumber(),
+                caseFile.getArea(),
+                caseFile.getStatus(),
+                caseFile.getPriority(),
+                caseFile.getCreatedBy().getId(),
+                caseFile.getCreatedAt(),
+                caseFile.getUpdatedAt(),
+                caseFile.getClosedAt());
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+}
+Created file
+CaseController.java
++80
+-0
+
+package com.painel.api.casefile;
+
+import com.painel.api.user.OfficeUser;
+import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/cases")
+public class CaseController {
+
+    private final CaseService caseService;
+
+    public CaseController(CaseService caseService) {
+        this.caseService = caseService;
+    }
+
+    @GetMapping
+    @ResponseStatus(HttpStatus.OK)
+    public List<CaseResponse> list(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) CaseStatus status,
+            @RequestParam(required = false) UUID clientId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.list(search, status, clientId, actor);
+    }
+
+    @GetMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public CaseResponse getById(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.getById(id, actor);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public CaseResponse create(
+            @Valid @RequestBody CaseRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.create(request, actor);
+    }
+
+    @PatchMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public CaseResponse update(
+            @PathVariable UUID id,
+            @Valid @RequestBody CaseRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.update(id, request, actor);
+    }
+
+    @GetMapping("/{id}/members")
+    @ResponseStatus(HttpStatus.OK)
+    public List<CaseMemberResponse> listMembers(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.listMembers(id, actor);
+    }
+
+    @PostMapping("/{id}/members")
+    @ResponseStatus(HttpStatus.OK)
+    public CaseMemberResponse upsertMember(
+            @PathVariable UUID id,
+            @Valid @RequestBody CaseMemberUpsertRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.upsertMember(id, request, actor);
+    }
+}
+Endpoints de casos foram adicionados. Vou fazer um ajuste técnico nas assinaturas de repositório para garantir compatibilidade 100% com Spring Data em propriedades aninhadas (caseFile.id, user.id).
+
+Edited file
+CaseMemberRepository.java
++4
+-4
+
+public interface CaseMemberRepository extends JpaRepository<CaseMember, CaseMemberId> {
+    List<CaseMember> findByCaseFileId(UUID caseId);
+    Optional<CaseMember> findByCaseFileIdAndUserId(UUID caseId, UUID userId);
+    boolean existsByCaseFileIdAndUserId(UUID caseId, UUID userId);
+    void deleteByCaseFileIdAndUserId(UUID caseId, UUID userId);
+    List<CaseMember> findByCaseFile_Id(UUID caseId);
+    Optional<CaseMember> findByCaseFile_IdAndUser_Id(UUID caseId, UUID userId);
+    boolean existsByCaseFile_IdAndUser_Id(UUID caseId, UUID userId);
+    void deleteByCaseFile_IdAndUser_Id(UUID caseId, UUID userId);
+}
+Edited file
+AuthorizationService.java
++3
+-3
+
+    public void requireCaseReadAccess(OfficeUser user, UUID caseId) {
+        if (isAdmin(user) || caseMemberRepository.existsByCaseFileIdAndUserId(caseId, user.getId())) {
+        if (isAdmin(user) || caseMemberRepository.existsByCaseFile_IdAndUser_Id(caseId, user.getId())) {
+            return;
+        }
+        var permission = caseMemberRepository.findByCaseFileIdAndUserId(caseId, user.getId())
+        var permission = caseMemberRepository.findByCaseFile_IdAndUser_Id(caseId, user.getId())
+                .map(member -> member.getPermission())
+        }
+        var permission = caseMemberRepository.findByCaseFileIdAndUserId(caseId, user.getId())
+        var permission = caseMemberRepository.findByCaseFile_IdAndUser_Id(caseId, user.getId())
+                .map(member -> member.getPermission())
+Edited file
+CaseService.java
++2
+-2
+
+        findCase(caseId);
+        return caseMemberRepository.findByCaseFileId(caseId).stream()
+        return caseMemberRepository.findByCaseFile_Id(caseId).stream()
+                .map(member -> new CaseMemberResponse(
+    private CaseMember upsertMember(CaseFile caseFile, OfficeUser user, CaseMemberPermission permission) {
+        CaseMember member = caseMemberRepository.findByCaseFileIdAndUserId(caseFile.getId(), user.getId())
+        CaseMember member = caseMemberRepository.findByCaseFile_IdAndUser_Id(caseFile.getId(), user.getId())
+                .orElseGet(CaseMember::new);
+Ran mvn -q -DskipTests compile for 6s
+
+
+Compile passou. Vou reiniciar a API para aplicar a migração V2 no banco e validar os novos endpoints com chamadas reais (clients e cases).
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+
+Ran docker compose up -d postgres
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 18; Write-Output ("PID=" + $p.Id) for 22s
+
+
+Ran Get-ChildItem api.*.log | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+
+
+Ran Get-Content api.out.log -Tail 60
+
+
+Ran try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message }
+
+
+Ran $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $clientBody = @{ name='Cliente Teste'; cpfLast3='123'; email='cliente@teste.com'; phone='11999999999'; notes='cliente criado no smoke test' } | ConvertTo-Json; $client = Invoke-RestMethod -Method Post -Uri http://localhost:8080/clients -Headers $headers -ContentType 'application/json' -Body $clientBody; $caseBody = @{ clientId=$client.id; title='Caso de Teste'; caseNumber='2026-TESTE-0001'; area='CIVEL'; status='OPEN'; priority='MEDIUM' } | ConvertTo-Json; $case = Invoke-RestMethod -Method Post -Uri http://localhost:8080/cases -Headers $headers -ContentType 'application/json' -Body $caseBody; $members = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/" + $case.id + "/members") -Headers $headers; [PSCustomObject]@{ clientId=$client.id; caseId=$case.id; membersCount=$members.Count } | ConvertTo-Json -Compress for 1s
+
+
+Detectei uma falha de autorização no POST /cases durante o smoke test. Vou inspecionar a resposta detalhada para corrigir imediatamente a regra que está bloqueando indevidamente.
+
+Ran $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $client = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/clients' -Headers $headers | Select-Object -First 1; $caseBody = @{ clientId=$client.id; title='Caso de Teste'; caseNumber='2026-TESTE-0001'; area='CIVEL'; status='OPEN'; priority='MEDIUM' } | ConvertTo-Json; try { Invoke-RestMethod -Method Post -Uri http://localhost:8080/cases -Headers $headers -ContentType 'application/json' -Body $caseBody | ConvertTo-Json -Compress } catch { $resp = $_.Exception.Response; if ($resp -and $resp.GetResponseStream()) { $reader = New-Object System.IO.StreamReader($resp.GetResponseStream()); $reader.ReadToEnd() } else { $_.Exception.Message } } for 1s
+
+
+Ran $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $me = Invoke-RestMethod -Method Get -Uri http://localhost:8080/auth/me -Headers $headers; $clients = Invoke-RestMethod -Method Get -Uri http://localhost:8080/clients -Headers $headers; [PSCustomObject]@{ meRole=$me.role; clientsCount=($clients | Measure-Object).Count } | ConvertTo-Json -Compress for 1s
+
+
+Ran Get-Content api.out.log -Tail 120
+
+
+Ran Select-String -Path backend\api.out.log -Pattern 'ForbiddenException|ERROR|Exception:' -Context 1,3 for 1s
+
+
+Ran docker exec painel-postgres psql -U postgres -d painel_cliente -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='clients' ORDER BY ordinal_position;" for 1s
+
+
+Edited file
+CaseMemberId.java
++8
+-0
+
+
+    public void setCaseId(UUID caseId) {
+        this.caseId = caseId;
+    }
+
+    public UUID getUserId() {
+
+    public void setUserId(UUID userId) {
+        this.userId = userId;
+    }
+
+    @Override
+Edited file
+CaseMember.java
++1
+-1
+
+    @EmbeddedId
+    private CaseMemberId id;
+    private CaseMemberId id = new CaseMemberId();
+
+Edited file
+ClientRepository.java
++4
+-2
+
+            from Client c
+            where (:search is null or lower(c.name) like lower(concat('%', :search, '%'))
+            where lower(c.name) like lower(concat('%', :search, '%'))
+                or lower(coalesce(c.email, '')) like lower(concat('%', :search, '%'))
+                or lower(coalesce(c.phone, '')) like lower(concat('%', :search, '%')))
+                or lower(coalesce(c.phone, '')) like lower(concat('%', :search, '%'))
+            order by c.updatedAt desc
+    List<Client> search(@Param("search") String search);
+
+    List<Client> findAllByOrderByUpdatedAtDesc();
+}
+Edited file
+ClientService.java
++5
+-1
+
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        return clientRepository.search(normalizeFilter(search)).stream().map(this::toResponse).toList();
+        String normalizedSearch = normalizeFilter(search);
+        List<Client> clients = normalizedSearch == null
+                ? clientRepository.findAllByOrderByUpdatedAtDesc()
+                : clientRepository.search(normalizedSearch);
+        return clients.stream().map(this::toResponse).toList();
+    }
+Edited file
+CaseFileRepository.java
++29
+-4
+
+              and (:clientId is null or cl.id = :clientId)
+              and (:search is null or lower(c.title) like lower(concat('%', :search, '%'))
+            order by c.updatedAt desc
+            """)
+    List<CaseFile> searchAll(@Param("status") CaseStatus status, @Param("clientId") UUID clientId);
+
+    @Query("""
+            select c
+            from CaseFile c
+            join fetch c.client cl
+            where (:status is null or c.status = :status)
+              and (:clientId is null or cl.id = :clientId)
+              and (lower(c.title) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+            """)
+    List<CaseFile> searchAll(@Param("status") CaseStatus status, @Param("clientId") UUID clientId, @Param("search") String search);
+    List<CaseFile> searchAllWithTerm(@Param("status") CaseStatus status, @Param("clientId") UUID clientId, @Param("search") String search);
+
+              and (:clientId is null or cl.id = :clientId)
+              and (:search is null or lower(c.title) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+            order by c.updatedAt desc
+            @Param("status") CaseStatus status,
+            @Param("clientId") UUID clientId);
+
+    @Query("""
+            select distinct c
+            from CaseFile c
+            join fetch c.client cl
+            join CaseMember cm on cm.caseFile.id = c.id
+            where cm.user.id = :userId
+              and (:status is null or c.status = :status)
+              and (:clientId is null or cl.id = :clientId)
+              and (lower(c.title) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+            order by c.updatedAt desc
+            """)
+    List<CaseFile> searchByMemberWithTerm(
+            @Param("userId") UUID userId,
+            @Param("status") CaseStatus status,
+            @Param("clientId") UUID clientId,
+Edited file
+CaseService.java
++11
+-3
+
+        String normalizedSearch = trimToNull(search);
+        List<CaseFile> cases = authorizationService.isAdmin(actor)
+                ? caseFileRepository.searchAll(status, clientId, normalizedSearch)
+                : caseFileRepository.searchByMember(actor.getId(), status, clientId, normalizedSearch);
+        boolean hasSearch = normalizedSearch != null;
+        List<CaseFile> cases;
+        if (authorizationService.isAdmin(actor)) {
+            cases = hasSearch
+                    ? caseFileRepository.searchAllWithTerm(status, clientId, normalizedSearch)
+                    : caseFileRepository.searchAll(status, clientId);
+        } else {
+            cases = hasSearch
+                    ? caseFileRepository.searchByMemberWithTerm(actor.getId(), status, clientId, normalizedSearch)
+                    : caseFileRepository.searchByMember(actor.getId(), status, clientId);
+        }
+        return cases.stream().map(this::toResponse).toList();
+Ran mvn -q -DskipTests compile for 8s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 16; Write-Output ("PID=" + $p.Id) for 20s
+
+
+Ajustes aplicados. Vou executar um smoke test completo com ErrorAction Stop para validar, sem ruído, os fluxos de clients, cases e case members.
+
+Ran $ErrorActionPreference = 'Stop'; $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $clientBody = @{ name='Cliente Etapa2'; cpfLast3='123'; email='cliente2@teste.com'; phone='11900000000'; notes='seed smoke etapa2' } | ConvertTo-Json; $client = Invoke-RestMethod -Method Post -Uri http://localhost:8080/clients -Headers $headers -ContentType 'application/json' -Body $clientBody; $caseBody = @{ clientId=$client.id; title='Caso Etapa2'; caseNumber='2026-ETAPA2-001'; area='CIVEL'; status='OPEN'; priority='MEDIUM' } | ConvertTo-Json; $case = Invoke-RestMethod -Method Post -Uri http://localhost:8080/cases -Headers $headers -ContentType 'application/json' -Body $caseBody; $members = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/" + $case.id + "/members") -Headers $headers; $listCases = Invoke-RestMethod -Method Get -Uri "http://localhost:8080/cases?search=Etapa2" -Headers $headers; [PSCustomObject]@{ health=(Invoke-WebRequest -UseBasicParsing http://localhost:8080/health).Content; meRole=(Invoke-RestMethod -Method Get -Uri http://localhost:8080/auth/me -Headers $headers).role; clientId=$client.id; caseId=$case.id; membersCount=$members.Count; filteredCases=($listCases | Measure-Object).Count } | ConvertTo-Json -Compress for 3s
+
+
+Edited file
+README.md
++9
+-5
+
+
+## Estrutura inicial
+## Estrutura atual
+- `office_users`
+- `cases`
+- `case_members`
+- `POST /auth/login`
+- `GET /health`
+- `GET/POST/PATCH /clients`
+- `GET/POST/PATCH /cases`
+- `GET/POST /cases/{id}/members`
+
+## Proxima etapa recomendada
+1. CRUD de `clients` e `cases` com RBAC por role.
+2. Implementar `case_members` para permissao por caso.
+3. Implementar `portal_link_tokens` com 1 link ativo por caso.
+4. Validacao `token + cpfLast3` em `POST /client-portal/session`.
+1. Implementar `portal_link_tokens` com 1 link ativo por caso.
+2. Implementar validacao `token + cpfLast3` em `POST /client-portal/session`.
+3. Expor endpoints `client-portal/*` com filtro `CLIENT_VISIBLE`.
+4. Incluir auditoria por acao no `audit_log`.
+Ran try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 5).Content } catch { $_.Exception.Message }
+
+
+Worked for 8m 53s
+Etapa 2 concluída e funcional no backend.
+
+O que implementei
+
+case_members no banco com Flyway: V2__create_case_members.sql
+Autorização por role + permissão por caso (OWNER/EDITOR/VIEWER): AuthorizationService.java
+CRUD de clientes:
+ClientController.java
+ClientService.java
+CRUD de casos + membros:
+CaseController.java
+CaseService.java
+CaseMember.java
+Tratamento de erros 403/404:
+ApiExceptionHandler.java
+Endpoints prontos
+
+GET/POST/PATCH /clients
+GET/POST/PATCH /cases
+GET/POST /cases/{id}/members
+Validação executada
+
+mvn -DskipTests compile OK
+API no ar: http://localhost:8080 (/health = ok)
+Smoke test real OK:
+login admin
+criar cliente
+criar caso
+listar membros do caso
+buscar casos por search
+resultado final: membersCount=1, filteredCases=1
+Se quiser, sigo direto para a Etapa 3 agora: portal_link_tokens (1 link ativo por caso) + revogação.
+
+
+22 files changed
++843
+-8
+Undo
+
+README.md
+AuthorizationService.java
+CaseController.java
+CaseFileRepository.java
+CaseMember.java
+CaseMemberId.java
+CaseMemberPermission.java
+CaseMemberRepository.java
+CaseMemberResponse.java
+CaseMemberUpsertRequest.java
+CaseRequest.java
+CaseResponse.java
+CaseService.java
+ClientController.java
+ClientRepository.java
+ClientRequest.java
+ClientResponse.java
+ClientService.java
+ApiExceptionHandler.java
+ForbiddenException.java
+NotFoundException.java
+V2__create_case_members.sql
+
+
+Vou implementar a Etapa 3 agora: portal_link_tokens com regra de 1 link ativo por caso, endpoints de ativar/revogar/status no /cases/{caseId}/portal-link, e token seguro com hash no banco. Em seguida eu valido com teste real na API.
+
+Created file
+V3__create_case_portal_links.sql
++19
+-0
+
+CREATE TABLE case_portal_links (
+    id UUID PRIMARY KEY,
+    case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    client_id UUID NOT NULL REFERENCES clients(id),
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    status VARCHAR(20) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_by UUID NOT NULL REFERENCES office_users(id),
+    created_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ NULL,
+    last_access_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX idx_case_portal_links_case_id ON case_portal_links(case_id);
+CREATE INDEX idx_case_portal_links_status ON case_portal_links(status);
+CREATE INDEX idx_case_portal_links_expires_at ON case_portal_links(expires_at);
+CREATE UNIQUE INDEX uq_case_portal_links_active_case
+    ON case_portal_links(case_id)
+    WHERE status = 'ACTIVE';
+Vou adicionar agora as classes de domínio e serviço do portal link, incluindo geração de token com SecureRandom e hash SHA-256 antes de persistir.
+
+Ran New-Item -ItemType Directory -Force -Path backend\src\main\java\com\painel\api\portal | Out-Null
+
+
+Ran @' package com.painel.api.portal; public enum PortalLinkStatus { ACTIVE, REVOKED, EXPIRED } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalLinkStatus.java
+
+
+Ran @' package com.painel.api.portal; import jakarta.validation.constraints.Max; import jakarta.validation.constraints.Min; public record PortalLinkActivateRequest( @Min(5) @Max(10080) Integer ttlMinutes ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalLinkActivateRequest.java
+
+
+Ran @' package com.painel.api.portal; import java.time.OffsetDateTime; import java.util.UUID; public record PortalLinkResponse( UUID id, UUID caseId, PortalLinkStatus status, OffsetDateTime expiresAt, OffsetDateTime revokedAt, OffsetDateTime lastAccessAt, String url ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalLinkResponse.java
+
+
+Ran @' package com.painel.api.portal; import java.util.List; import java.util.Optional; import java.util.UUID; import org.springframework.data.jpa.repository.JpaRepository; public interface CasePortalLinkRepository extends JpaRepository<CasePortalLink, UUID> { Optional<CasePortalLink> findFirstByCaseFile_IdAndStatusOrderByCreatedAtDesc(UUID caseId, PortalLinkStatus status); List<CasePortalLink> findByCaseFile_IdAndStatus(UUID caseId, PortalLinkStatus status); Optional<CasePortalLink> findFirstByCaseFile_IdOrderByCreatedAtDesc(UUID caseId); } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\CasePortalLinkRepository.java for 1s
+
+
+Ran @' package com.painel.api.portal; import com.painel.api.casefile.CaseFile; import com.painel.api.client.Client; import com.painel.api.user.OfficeUser; import jakarta.persistence.Column; import jakarta.persistence.Entity; import jakarta.persistence.EnumType; import jakarta.persistence.Enumerated; import jakarta.persistence.FetchType; import jakarta.persistence.Id; import jakarta.persistence.JoinColumn; import jakarta.persistence.ManyToOne; import jakarta.persistence.PrePersist; import jakarta.persistence.Table; import java.time.OffsetDateTime; import java.util.UUID; @Entity @Table(name = "case_portal_links") public class CasePortalLink { @Id private UUID id; @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "case_id", nullable = false) private CaseFile caseFile; @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "client_id", nullable = false) private Client client; @Column(name = "token_hash", nullable = false, unique = true, length = 128) private String tokenHash; @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20) private PortalLinkStatus status; @Column(name = "expires_at", nullable = false) private OffsetDateTime expiresAt; @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "created_by", nullable = false) private OfficeUser createdBy; @Column(name = "created_at", nullable = false) private OffsetDateTime createdAt; @Column(name = "revoked_at") private OffsetDateTime revokedAt; @Column(name = "last_access_at") private OffsetDateTime lastAccessAt; @PrePersist void prePersist() { if (id == null) { id = UUID.randomUUID(); } createdAt = OffsetDateTime.now(); } public UUID getId() { return id; } public CaseFile getCaseFile() { return caseFile; } public void setCaseFile(CaseFile caseFile) { this.caseFile = caseFile; } public Client getClient() { return client; } public void setClient(Client client) { this.client = client; } public String getTokenHash() { return tokenHash; } public void setTokenHash(String tokenHash) { this.tokenHash = tokenHash; } public PortalLinkStatus getStatus() { return status; } public void setStatus(PortalLinkStatus status) { this.status = status; } public OffsetDateTime getExpiresAt() { return expiresAt; } public void setExpiresAt(OffsetDateTime expiresAt) { this.expiresAt = expiresAt; } public OfficeUser getCreatedBy() { return createdBy; } public void setCreatedBy(OfficeUser createdBy) { this.createdBy = createdBy; } public OffsetDateTime getCreatedAt() { return createdAt; } public OffsetDateTime getRevokedAt() { return revokedAt; } public void setRevokedAt(OffsetDateTime revokedAt) { this.revokedAt = revokedAt; } public OffsetDateTime getLastAccessAt() { return lastAccessAt; } public void setLastAccessAt(OffsetDateTime lastAccessAt) { this.lastAccessAt = lastAccessAt; } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\CasePortalLink.java for 1s
+
+
+Ran @' package com.painel.api.portal; import org.springframework.boot.context.properties.ConfigurationProperties; @ConfigurationProperties(prefix = "app.portal") public record PortalProperties( String frontendBaseUrl, String clientPath, int defaultTtlMinutes ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalProperties.java for 1s
+
+
+Edited file
+PropertiesConfig.java
++3
+-2
+
+
+import com.painel.api.portal.PortalProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+@Configuration
+@EnableConfigurationProperties({SecurityProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({SecurityProperties.class, CorsProperties.class, PortalProperties.class})
+public class PropertiesConfig {
+}
+}
+Edited file
+application.yml
++5
+-1
+
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  portal:
+    frontend-base-url: ${APP_FRONTEND_BASE_URL:http://localhost:5173}
+    client-path: ${APP_PORTAL_CLIENT_PATH:/client-portal}
+    default-ttl-minutes: ${APP_PORTAL_DEFAULT_TTL_MINUTES:1440}
+  security:
+    jwt-secret: ${JWT_SECRET:change-this-secret-in-production-change-this-secret-in-production}
+    access-token-minutes: ${JWT_ACCESS_TOKEN_MINUTES:120}
+    access-token-minutes: ${JWT_ACCESS_TOKEN_MINUTES:120}
+Ran @' package com.painel.api.portal; import java.nio.charset.StandardCharsets; import java.security.MessageDigest; import java.security.NoSuchAlgorithmException; import java.security.SecureRandom; import java.util.Base64; import org.springframework.stereotype.Component; @Component public class PortalTokenService { private final SecureRandom secureRandom = new SecureRandom(); public String generateToken() { byte[] bytes = new byte[32]; secureRandom.nextBytes(bytes); return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); } public String hash(String token) { try { MessageDigest digest = MessageDigest.getInstance("SHA-256"); byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8)); StringBuilder sb = new StringBuilder(hash.length * 2); for (byte b : hash) { sb.append(String.format("%02x", b)); } return sb.toString(); } catch (NoSuchAlgorithmException e) { throw new IllegalStateException("SHA-256 indisponivel", e); } } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalTokenService.java
+
+
+Ran @' package com.painel.api.portal; import com.painel.api.auth.AuthorizationService; import com.painel.api.casefile.CaseFile; import com.painel.api.casefile.CaseFileRepository; import com.painel.api.common.NotFoundException; import com.painel.api.user.OfficeUser; import java.net.URLEncoder; import java.nio.charset.StandardCharsets; import java.time.OffsetDateTime; import java.util.List; import java.util.UUID; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; @Service public class PortalLinkService { private final CasePortalLinkRepository casePortalLinkRepository; private final CaseFileRepository caseFileRepository; private final AuthorizationService authorizationService; private final PortalTokenService portalTokenService; private final PortalProperties portalProperties; public PortalLinkService( CasePortalLinkRepository casePortalLinkRepository, CaseFileRepository caseFileRepository, AuthorizationService authorizationService, PortalTokenService portalTokenService, PortalProperties portalProperties) { this.casePortalLinkRepository = casePortalLinkRepository; this.caseFileRepository = caseFileRepository; this.authorizationService = authorizationService; this.portalTokenService = portalTokenService; this.portalProperties = portalProperties; } @Transactional(readOnly = true) public PortalLinkResponse getStatus(UUID caseId, OfficeUser actor) { authorizationService.requireCaseReadAccess(actor, caseId); findCase(caseId); CasePortalLink latest = casePortalLinkRepository.findFirstByCaseFile_IdOrderByCreatedAtDesc(caseId) .map(this::expireIfNeeded) .orElse(null); if (latest == null) { return new PortalLinkResponse(null, caseId, null, null, null, null, null); } return toResponse(latest, null); } @Transactional public PortalLinkResponse activate(UUID caseId, PortalLinkActivateRequest request, OfficeUser actor) { authorizationService.requireCaseWriteAccess(actor, caseId); CaseFile caseFile = findCase(caseId); revokeActiveLinks(caseId); String token = portalTokenService.generateToken(); String tokenHash = portalTokenService.hash(token); int ttlMinutes = request != null && request.ttlMinutes() != null ? request.ttlMinutes() : portalProperties.defaultTtlMinutes(); CasePortalLink link = new CasePortalLink(); link.setCaseFile(caseFile); link.setClient(caseFile.getClient()); link.setCreatedBy(actor); link.setTokenHash(tokenHash); link.setStatus(PortalLinkStatus.ACTIVE); link.setExpiresAt(OffsetDateTime.now().plusMinutes(ttlMinutes)); CasePortalLink saved = casePortalLinkRepository.save(link); return toResponse(saved, buildPortalUrl(token)); } @Transactional public PortalLinkResponse revoke(UUID caseId, OfficeUser actor) { authorizationService.requireCaseWriteAccess(actor, caseId); findCase(caseId); List<CasePortalLink> activeLinks = casePortalLinkRepository.findByCaseFile_IdAndStatus(caseId, PortalLinkStatus.ACTIVE); OffsetDateTime now = OffsetDateTime.now(); for (CasePortalLink link : activeLinks) { link.setStatus(PortalLinkStatus.REVOKED); link.setRevokedAt(now); } casePortalLinkRepository.saveAll(activeLinks); CasePortalLink latest = casePortalLinkRepository.findFirstByCaseFile_IdOrderByCreatedAtDesc(caseId) .map(this::expireIfNeeded) .orElse(null); if (latest == null) { return new PortalLinkResponse(null, caseId, null, null, null, null, null); } return toResponse(latest, null); } private void revokeActiveLinks(UUID caseId) { List<CasePortalLink> activeLinks = casePortalLinkRepository.findByCaseFile_IdAndStatus(caseId, PortalLinkStatus.ACTIVE); OffsetDateTime now = OffsetDateTime.now(); for (CasePortalLink link : activeLinks) { link.setStatus(PortalLinkStatus.REVOKED); link.setRevokedAt(now); } casePortalLinkRepository.saveAll(activeLinks); } private CasePortalLink expireIfNeeded(CasePortalLink link) { if (link.getStatus() == PortalLinkStatus.ACTIVE && link.getExpiresAt().isBefore(OffsetDateTime.now())) { link.setStatus(PortalLinkStatus.EXPIRED); casePortalLinkRepository.save(link); } return link; } private CaseFile findCase(UUID caseId) { return caseFileRepository.findById(caseId) .orElseThrow(() -> new NotFoundException("Caso nao encontrado")); } private String buildPortalUrl(String token) { String base = trimTrailingSlash(portalProperties.frontendBaseUrl()); String path = portalProperties.clientPath().startsWith("/") ? portalProperties.clientPath() : "/" + portalProperties.clientPath(); return base + path + "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8); } private String trimTrailingSlash(String value) { if (value == null || value.isBlank()) { return "http://localhost:5173"; } String trimmed = value.trim(); return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed; } private PortalLinkResponse toResponse(CasePortalLink link, String url) { return new PortalLinkResponse( link.getId(), link.getCaseFile().getId(), link.getStatus(), link.getExpiresAt(), link.getRevokedAt(), link.getLastAccessAt(), url); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalLinkService.java
+
+
+Ran @' package com.painel.api.portal; import com.painel.api.user.OfficeUser; import jakarta.validation.Valid; import java.util.UUID; import org.springframework.http.HttpStatus; import org.springframework.security.core.annotation.AuthenticationPrincipal; import org.springframework.web.bind.annotation.GetMapping; import org.springframework.web.bind.annotation.PathVariable; import org.springframework.web.bind.annotation.PostMapping; import org.springframework.web.bind.annotation.RequestBody; import org.springframework.web.bind.annotation.RequestMapping; import org.springframework.web.bind.annotation.ResponseStatus; import org.springframework.web.bind.annotation.RestController; @RestController @RequestMapping("/cases/{caseId}/portal-link") public class PortalLinkController { private final PortalLinkService portalLinkService; public PortalLinkController(PortalLinkService portalLinkService) { this.portalLinkService = portalLinkService; } @GetMapping @ResponseStatus(HttpStatus.OK) public PortalLinkResponse status( @PathVariable UUID caseId, @AuthenticationPrincipal OfficeUser actor) { return portalLinkService.getStatus(caseId, actor); } @PostMapping("/activate") @ResponseStatus(HttpStatus.OK) public PortalLinkResponse activate( @PathVariable UUID caseId, @Valid @RequestBody(required = false) PortalLinkActivateRequest request, @AuthenticationPrincipal OfficeUser actor) { return portalLinkService.activate(caseId, request, actor); } @PostMapping("/revoke") @ResponseStatus(HttpStatus.OK) public PortalLinkResponse revoke( @PathVariable UUID caseId, @AuthenticationPrincipal OfficeUser actor) { return portalLinkService.revoke(caseId, actor); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\PortalLinkController.java
+
+
+A camada de portal link foi implementada. Vou compilar, reiniciar a API com a migração V3 e fazer teste real de ativar/revogar/status para validar a regra de “um ativo por caso”.
+
+Ran mvn -q -DskipTests compile for 6s
+
+
+A compilação falhou por BOM nos novos arquivos do pacote portal. Vou normalizar encoding UTF-8 sem BOM e repetir o ciclo de build/teste.
+
+Ran $enc = New-Object System.Text.UTF8Encoding($false); Get-ChildItem -Path backend\src\main\java\com\painel\api\portal -Recurse -File | ForEach-Object { $c = [System.IO.File]::ReadAllText($_.FullName); [System.IO.File]::WriteAllText($_.FullName, $c, $enc) }; $c2=[System.IO.File]::ReadAllText('backend\src\main\resources\db\migration\V3__create_case_portal_links.sql'); [System.IO.File]::WriteAllText('backend\src\main\resources\db\migration\V3__create_case_portal_links.sql',$c2,$enc)
+
+
+Ran mvn -q -DskipTests compile for 7s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+
+Ran docker compose up -d postgres
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 18; Write-Output ("PID=" + $p.Id) for 22s
+
+
+Ran try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message } for 1s
+
+
+Ran Select-String -Path api.out.log -Pattern 'Started PainelApiApplication|Migrating schema|version "3"|ERROR' -Context 0,1 for 1s
+
+
+Migração V3 aplicada com sucesso e API está de pé. Vou rodar o fluxo completo: activate duas vezes (confirmar que só 1 ativo fica), status, e revoke.
+
+Ran $ErrorActionPreference='Stop'; $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $cases = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $headers; if (($cases | Measure-Object).Count -eq 0) { throw 'Nenhum caso encontrado para teste'; }; $caseId = $cases[0].id; $a1 = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $headers -ContentType 'application/json' -Body (@{ ttlMinutes=60 } | ConvertTo-Json); Start-Sleep -Milliseconds 200; $a2 = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $headers -ContentType 'application/json' -Body (@{ ttlMinutes=120 } | ConvertTo-Json); $status = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/portal-link") -Headers $headers; $revoke = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/revoke") -Headers $headers; $statusAfter = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/portal-link") -Headers $headers; [PSCustomObject]@{ caseId=$caseId; activate1Id=$a1.id; activate2Id=$a2.id; hasUrl1=([string]::IsNullOrWhiteSpace($a1.url) -eq $false); hasUrl2=([string]::IsNullOrWhiteSpace($a2.url) -eq $false); statusAfterActivate=$status.status; revokeStatus=$revoke.status; statusAfterRevoke=$statusAfter.status } | ConvertTo-Json -Compress for 1s
+
+
+O primeiro activate passou, mas o segundo retornou 403. Vou capturar o corpo da resposta e o log para identificar se foi regra de permissão ou erro de fluxo.
+
+Ran $ErrorActionPreference='Stop'; $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $headers)[0]; $uri = "http://localhost:8080/cases/$($case.id)/portal-link/activate"; $body = (@{ ttlMinutes=60 } | ConvertTo-Json); $first = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body; try { $second = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body; $second | ConvertTo-Json -Compress } catch { $resp = $_.Exception.Response; if ($resp -and $resp.GetResponseStream()) { $reader = New-Object System.IO.StreamReader($resp.GetResponseStream()); $txt=$reader.ReadToEnd(); Write-Output $txt } else { Write-Output $_.Exception.Message } }
+
+
+Ran Get-Content api.out.log -Tail 120
+
+
+Ran Select-String -Path api.out.log -Pattern 'duplicate key|ConstraintViolation|uq_case_portal_links_active_case|DataIntegrity|ERROR' -Context 0,2
+
+
+Edited file
+PortalLinkService.java
++2
+-2
+
+        }
+        casePortalLinkRepository.saveAll(activeLinks);
+        casePortalLinkRepository.saveAllAndFlush(activeLinks);
+
+        }
+        casePortalLinkRepository.saveAll(activeLinks);
+        casePortalLinkRepository.saveAllAndFlush(activeLinks);
+    }
+Identifiquei o problema: a revogação do link ativo estava no mesmo commit do novo insert sem flush, e o índice único parcial bloqueava. Ajustei para saveAllAndFlush antes de criar novo link. Vou validar de novo o fluxo.
+
+Ran mvn -q -DskipTests compile for 8s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 16; Write-Output ("PID=" + $p.Id) for 20s
+
+
+Ran $ErrorActionPreference='Stop'; (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content | Out-Null; $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $headers)[0]; $caseId = $case.id; $a1 = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $headers -ContentType 'application/json' -Body (@{ ttlMinutes=60 } | ConvertTo-Json); $a2 = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $headers -ContentType 'application/json' -Body (@{ ttlMinutes=120 } | ConvertTo-Json); $status = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/portal-link") -Headers $headers; $revoke = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/revoke") -Headers $headers; $statusAfter = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/portal-link") -Headers $headers; [PSCustomObject]@{ caseId=$caseId; activate1Status=$a1.status; activate2Status=$a2.status; statusAfterActivate=$status.status; revokeStatus=$revoke.status; statusAfterRevoke=$statusAfter.status; activate2HasUrl=([string]::IsNullOrWhiteSpace($a2.url) -eq $false) } | ConvertTo-Json -Compress for 2s
+
+
+Fluxo está validado ponta a ponta. Vou fazer um ajuste final de consistência transacional no getStatus (permite marcar EXPIRED) e atualizar o README com os novos endpoints da etapa 3.
+
+Edited file
+PortalLinkService.java
++1
+-1
+
+
+    @Transactional(readOnly = true)
+    @Transactional
+    public PortalLinkResponse getStatus(UUID caseId, OfficeUser actor) {
+Edited file
+README.md
++11
+-4
+
+- `case_members`
+- `case_portal_links`
+- `POST /auth/login`
+- `GET/POST /cases/{id}/members`
+- `GET /cases/{id}/portal-link`
+- `POST /cases/{id}/portal-link/activate`
+- `POST /cases/{id}/portal-link/revoke`
+
+- `CORS_ALLOWED_ORIGINS`
+- `APP_FRONTEND_BASE_URL`
+- `APP_PORTAL_CLIENT_PATH`
+- `APP_PORTAL_DEFAULT_TTL_MINUTES`
+
+## Proxima etapa recomendada
+1. Implementar `portal_link_tokens` com 1 link ativo por caso.
+2. Implementar validacao `token + cpfLast3` em `POST /client-portal/session`.
+3. Expor endpoints `client-portal/*` com filtro `CLIENT_VISIBLE`.
+4. Incluir auditoria por acao no `audit_log`.
+1. Implementar validacao `token + cpfLast3` em `POST /client-portal/session`.
+2. Expor endpoints `client-portal/*` com filtro `CLIENT_VISIBLE`.
+3. Incluir auditoria por acao no `audit_log`.
+4. Integrar upload de documentos com storage externo (presigned URL).
+Vou rodar um build rápido para fechar a etapa sem regressão após esse ajuste final.
+
+Ran mvn -q -DskipTests compile for 9s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 14; Write-Output ("PID=" + $p.Id) for 18s
+
+
+Ran $ErrorActionPreference='Stop'; $health=(Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content; $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $headers = @{ Authorization = "Bearer $($login.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $headers)[0]; $a = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $headers -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $s = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/portal-link") -Headers $headers; [PSCustomObject]@{health=$health; activateStatus=$a.status; status=$s.status; hasUrl=([string]::IsNullOrWhiteSpace($a.url) -eq $false)} | ConvertTo-Json -Compress for 1s
+
+
+Worked for 6m 53s
+Etapa 3 concluída com sucesso.
+
+Implementado
+
+Tabela e índice para garantir 1 link ativo por caso:
+V3__create_case_portal_links.sql
+Domínio portal link (ACTIVE/REVOKED/EXPIRED) + hash de token:
+CasePortalLink.java
+PortalTokenService.java
+Serviço com regras:
+revoga ativo anterior antes de ativar novo
+salva só token_hash (SHA-256), nunca token puro
+monta URL do portal com token
+endpoints protegidos por permissão do caso
+PortalLinkService.java
+Endpoints:
+GET /cases/{id}/portal-link
+POST /cases/{id}/portal-link/activate
+POST /cases/{id}/portal-link/revoke
+PortalLinkController.java
+Config adicionada
+
+application.yml:
+APP_FRONTEND_BASE_URL
+APP_PORTAL_CLIENT_PATH
+APP_PORTAL_DEFAULT_TTL_MINUTES
+Validação
+
+mvn -DskipTests compile OK
+API ativa em http://localhost:8080 (/health = ok)
+Smoke test OK:
+activate -> ACTIVE + URL com token
+segundo activate -> mantém apenas um ativo
+revoke -> status REVOKED
+Se você quiser, sigo direto para a Etapa 4: POST /client-portal/session com token + cpfLast3 e sessão curta do cliente.
+
+
+5 files changed
++41
+-10
+Undo
+
+README.md
+PropertiesConfig.java
+PortalLinkService.java
+application.yml
+V3__create_case_portal_links.sql
+
+
+Vou para a Etapa 4 implementando autenticação do cliente no portal via token + cpfLast3, com sessão curta separada da sessão do escritório. Primeiro adiciono migração e modelo de client_portal_sessions, depois endpoints /client-portal/session, /client-portal/me e /client-portal/case.
+
+Created file
+V4__create_client_portal_sessions.sql
++15
+-0
+
+CREATE TABLE client_portal_sessions (
+    id UUID PRIMARY KEY,
+    case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    session_hash VARCHAR(128) NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ NULL,
+    ip VARCHAR(80) NULL,
+    user_agent VARCHAR(512) NULL
+);
+
+CREATE INDEX idx_client_portal_sessions_client_id ON client_portal_sessions(client_id);
+CREATE INDEX idx_client_portal_sessions_case_id ON client_portal_sessions(case_id);
+CREATE INDEX idx_client_portal_sessions_expires_at ON client_portal_sessions(expires_at);
+Ran @' package com.painel.api.portal; import com.painel.api.casefile.CaseFile; import com.painel.api.client.Client; import jakarta.persistence.Column; import jakarta.persistence.Entity; import jakarta.persistence.FetchType; import jakarta.persistence.Id; import jakarta.persistence.JoinColumn; import jakarta.persistence.ManyToOne; import jakarta.persistence.PrePersist; import jakarta.persistence.Table; import java.time.OffsetDateTime; import java.util.UUID; @Entity @Table(name = "client_portal_sessions") public class ClientPortalSession { @Id private UUID id; @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "case_id", nullable = false) private CaseFile caseFile; @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "client_id", nullable = false) private Client client; @Column(name = "session_hash", nullable = false, unique = true, length = 128) private String sessionHash; @Column(name = "expires_at", nullable = false) private OffsetDateTime expiresAt; @Column(name = "created_at", nullable = false) private OffsetDateTime createdAt; @Column(name = "revoked_at") private OffsetDateTime revokedAt; @Column(length = 80) private String ip; @Column(name = "user_agent", length = 512) private String userAgent; @PrePersist void prePersist() { if (id == null) { id = UUID.randomUUID(); } createdAt = OffsetDateTime.now(); } public UUID getId() { return id; } public CaseFile getCaseFile() { return caseFile; } public void setCaseFile(CaseFile caseFile) { this.caseFile = caseFile; } public Client getClient() { return client; } public void setClient(Client client) { this.client = client; } public String getSessionHash() { return sessionHash; } public void setSessionHash(String sessionHash) { this.sessionHash = sessionHash; } public OffsetDateTime getExpiresAt() { return expiresAt; } public void setExpiresAt(OffsetDateTime expiresAt) { this.expiresAt = expiresAt; } public OffsetDateTime getCreatedAt() { return createdAt; } public OffsetDateTime getRevokedAt() { return revokedAt; } public void setRevokedAt(OffsetDateTime revokedAt) { this.revokedAt = revokedAt; } public String getIp() { return ip; } public void setIp(String ip) { this.ip = ip; } public String getUserAgent() { return userAgent; } public void setUserAgent(String userAgent) { this.userAgent = userAgent; } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalSession.java for 1s
+
+
+Ran @' package com.painel.api.portal; import java.util.Optional; import java.util.UUID; import org.springframework.data.jpa.repository.JpaRepository; public interface ClientPortalSessionRepository extends JpaRepository<ClientPortalSession, UUID> { Optional<ClientPortalSession> findBySessionHash(String sessionHash); } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalSessionRepository.java for 1s
+
+
+Ran @' package com.painel.api.portal; public record ClientPortalSessionRequest( String token, String cpfLast3 ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalSessionRequest.java
+
+
+Ran @' package com.painel.api.portal; import java.time.OffsetDateTime; public record ClientPortalSessionResponse( boolean ok, String sessionToken, OffsetDateTime expiresAt ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalSessionResponse.java
+
+
+Ran @' package com.painel.api.portal; import com.painel.api.casefile.CasePriority; import com.painel.api.casefile.CaseStatus; import java.util.UUID; public record ClientPortalMeResponse( String clientName, UUID caseId, String caseTitle, CaseStatus caseStatus, CasePriority casePriority ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalMeResponse.java
+
+
+Ran @' package com.painel.api.portal; import com.painel.api.casefile.CasePriority; import com.painel.api.casefile.CaseStatus; import java.time.OffsetDateTime; import java.util.UUID; public record ClientPortalCaseResponse( UUID caseId, String title, String caseNumber, String area, CaseStatus status, CasePriority priority, OffsetDateTime updatedAt, OffsetDateTime closedAt, UUID clientId, String clientName ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalCaseResponse.java
+
+
+Vou implementar o serviço de sessão cliente agora, incluindo validação de token ativo, expiração, conferência do cpfLast3 e criação da sessão curta com cookie httpOnly + token de retorno.
+
+Created file
+UnauthorizedException.java
++7
+-0
+
+package com.painel.api.common;
+
+public class UnauthorizedException extends RuntimeException {
+    public UnauthorizedException(String message) {
+        super(message);
+    }
+}
+Edited file
+ApiExceptionHandler.java
++10
+-0
+
+    }
+
+    @ExceptionHandler(UnauthorizedException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public Map<String, Object> handleUnauthorized(UnauthorizedException ex) {
+        return Map.of(
+                "timestamp", OffsetDateTime.now().toString(),
+                "status", 401,
+                "error", "unauthorized",
+                "message", ex.getMessage());
+    }
+}
+Edited file
+PortalProperties.java
++3
+-2
+
+        String clientPath,
+        int defaultTtlMinutes
+        int defaultTtlMinutes,
+        int clientSessionMinutes
+) {
+}
+}
+Edited file
+application.yml
++1
+-0
+
+    default-ttl-minutes: ${APP_PORTAL_DEFAULT_TTL_MINUTES:1440}
+    client-session-minutes: ${APP_PORTAL_CLIENT_SESSION_MINUTES:120}
+  security:
+Ran @' package com.painel.api.portal; import com.painel.api.common.UnauthorizedException; import jakarta.servlet.http.Cookie; import jakarta.servlet.http.HttpServletRequest; import jakarta.servlet.http.HttpServletResponse; import java.time.OffsetDateTime; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; @Service public class ClientPortalSessionService { public static final String CLIENT_PORTAL_COOKIE = "CLIENT_PORTAL_SESSION"; public static final String CLIENT_PORTAL_HEADER = "X-Client-Session"; private final CasePortalLinkRepository casePortalLinkRepository; private final ClientPortalSessionRepository clientPortalSessionRepository; private final PortalTokenService portalTokenService; private final PortalProperties portalProperties; public ClientPortalSessionService( CasePortalLinkRepository casePortalLinkRepository, ClientPortalSessionRepository clientPortalSessionRepository, PortalTokenService portalTokenService, PortalProperties portalProperties) { this.casePortalLinkRepository = casePortalLinkRepository; this.clientPortalSessionRepository = clientPortalSessionRepository; this.portalTokenService = portalTokenService; this.portalProperties = portalProperties; } @Transactional public ClientPortalSessionResponse createSession( ClientPortalSessionRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) { String token = digitsOrText(request.token()); String cpfLast3 = onlyDigits(request.cpfLast3()); if (token == null || token.isBlank() || cpfLast3 == null || cpfLast3.length() != 3) { throw new UnauthorizedException("Token ou CPF invalido"); } String tokenHash = portalTokenService.hash(token); CasePortalLink link = casePortalLinkRepository.findByTokenHash(tokenHash) .orElseThrow(() -> new UnauthorizedException("Link invalido")); if (link.getStatus() == PortalLinkStatus.REVOKED) { throw new UnauthorizedException("Link revogado"); } if (link.getExpiresAt().isBefore(OffsetDateTime.now())) { link.setStatus(PortalLinkStatus.EXPIRED); casePortalLinkRepository.save(link); throw new UnauthorizedException("Link expirado"); } if (link.getStatus() != PortalLinkStatus.ACTIVE) { throw new UnauthorizedException("Link inativo"); } String clientLast3 = onlyDigits(link.getClient().getCpfLast3()); if (clientLast3 == null || !clientLast3.equals(cpfLast3)) { throw new UnauthorizedException("CPF invalido para este link"); } String rawSessionToken = portalTokenService.generateToken(); String sessionHash = portalTokenService.hash(rawSessionToken); ClientPortalSession session = new ClientPortalSession(); session.setCaseFile(link.getCaseFile()); session.setClient(link.getClient()); session.setSessionHash(sessionHash); session.setExpiresAt(OffsetDateTime.now().plusMinutes(portalProperties.clientSessionMinutes())); session.setIp(trimToNull(httpRequest.getRemoteAddr())); session.setUserAgent(trimToNull(httpRequest.getHeader("User-Agent"))); clientPortalSessionRepository.save(session); link.setLastAccessAt(OffsetDateTime.now()); casePortalLinkRepository.save(link); setSessionCookie(httpResponse, rawSessionToken, portalProperties.clientSessionMinutes() * 60); return new ClientPortalSessionResponse(true, rawSessionToken, session.getExpiresAt()); } @Transactional(readOnly = true) public ClientPortalMeResponse me(HttpServletRequest request) { ClientPortalSession session = resolveSessionOrThrow(request); return new ClientPortalMeResponse( session.getClient().getName(), session.getCaseFile().getId(), session.getCaseFile().getTitle(), session.getCaseFile().getStatus(), session.getCaseFile().getPriority()); } @Transactional(readOnly = true) public ClientPortalCaseResponse caseDetails(HttpServletRequest request) { ClientPortalSession session = resolveSessionOrThrow(request); var c = session.getCaseFile(); var cl = session.getClient(); return new ClientPortalCaseResponse( c.getId(), c.getTitle(), c.getCaseNumber(), c.getArea(), c.getStatus(), c.getPriority(), c.getUpdatedAt(), c.getClosedAt(), cl.getId(), cl.getName()); } @Transactional public void logout(HttpServletRequest request, HttpServletResponse response) { String token = resolveSessionToken(request); if (token != null) { String hash = portalTokenService.hash(token); clientPortalSessionRepository.findBySessionHash(hash).ifPresent(session -> { session.setRevokedAt(OffsetDateTime.now()); clientPortalSessionRepository.save(session); }); } clearSessionCookie(response); } private ClientPortalSession resolveSessionOrThrow(HttpServletRequest request) { String token = resolveSessionToken(request); if (token == null || token.isBlank()) { throw new UnauthorizedException("Sessao do cliente ausente"); } String hash = portalTokenService.hash(token); ClientPortalSession session = clientPortalSessionRepository.findBySessionHash(hash) .orElseThrow(() -> new UnauthorizedException("Sessao do cliente invalida")); if (session.getRevokedAt() != null) { throw new UnauthorizedException("Sessao revogada"); } if (session.getExpiresAt().isBefore(OffsetDateTime.now())) { throw new UnauthorizedException("Sessao expirada"); } return session; } private String resolveSessionToken(HttpServletRequest request) { String headerToken = trimToNull(request.getHeader(CLIENT_PORTAL_HEADER)); if (headerToken != null) { return headerToken; } if (request.getCookies() == null) { return null; } for (Cookie cookie : request.getCookies()) { if (CLIENT_PORTAL_COOKIE.equals(cookie.getName())) { return trimToNull(cookie.getValue()); } } return null; } private void setSessionCookie(HttpServletResponse response, String token, int maxAgeSeconds) { String cookie = CLIENT_PORTAL_COOKIE + "=" + token + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=" + maxAgeSeconds; response.addHeader("Set-Cookie", cookie); } private void clearSessionCookie(HttpServletResponse response) { response.addHeader("Set-Cookie", CLIENT_PORTAL_COOKIE + "=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"); } private String onlyDigits(String value) { if (value == null) { return null; } String digits = value.replaceAll("\\D", ""); return digits.isBlank() ? null : digits; } private String digitsOrText(String value) { if (value == null) { return null; } String trimmed = value.trim(); return trimmed.isEmpty() ? null : trimmed; } private String trimToNull(String value) { if (value == null) { return null; } String trimmed = value.trim(); return trimmed.isEmpty() ? null : trimmed; } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalSessionService.java for 1s
+
+
+Edited file
+CasePortalLinkRepository.java
++2
+-1
+
+    Optional<CasePortalLink> findFirstByCaseFile_IdOrderByCreatedAtDesc(UUID caseId);
+}
+    Optional<CasePortalLink> findByTokenHash(String tokenHash);
+}
+Ran @' package com.painel.api.portal; import jakarta.servlet.http.HttpServletRequest; import jakarta.servlet.http.HttpServletResponse; import jakarta.validation.Valid; import org.springframework.http.HttpStatus; import org.springframework.web.bind.annotation.GetMapping; import org.springframework.web.bind.annotation.PostMapping; import org.springframework.web.bind.annotation.RequestBody; import org.springframework.web.bind.annotation.RequestMapping; import org.springframework.web.bind.annotation.ResponseStatus; import org.springframework.web.bind.annotation.RestController; @RestController @RequestMapping("/client-portal") public class ClientPortalController { private final ClientPortalSessionService clientPortalSessionService; public ClientPortalController(ClientPortalSessionService clientPortalSessionService) { this.clientPortalSessionService = clientPortalSessionService; } @PostMapping("/session") @ResponseStatus(HttpStatus.OK) public ClientPortalSessionResponse createSession( @Valid @RequestBody ClientPortalSessionRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) { return clientPortalSessionService.createSession(request, httpRequest, httpResponse); } @PostMapping("/logout") @ResponseStatus(HttpStatus.NO_CONTENT) public void logout(HttpServletRequest request, HttpServletResponse response) { clientPortalSessionService.logout(request, response); } @GetMapping("/me") @ResponseStatus(HttpStatus.OK) public ClientPortalMeResponse me(HttpServletRequest request) { return clientPortalSessionService.me(request); } @GetMapping("/case") @ResponseStatus(HttpStatus.OK) public ClientPortalCaseResponse caseDetails(HttpServletRequest request) { return clientPortalSessionService.caseDetails(request); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalController.java
+
+
+Ran Get-Content backend\src\main\java\com\painel\api\portal\ClientPortalSessionRequest.java
+
+
+Ran @' package com.painel.api.portal; import jakarta.validation.constraints.NotBlank; import jakarta.validation.constraints.Pattern; public record ClientPortalSessionRequest( @NotBlank String token, @NotBlank @Pattern(regexp = "^\\d{3}$", message = "cpfLast3 deve ter 3 digitos") String cpfLast3 ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\portal\ClientPortalSessionRequest.java
+
+
+Vou ajustar a configuração de segurança para liberar rotas /client-portal/** (a autenticação delas passa a ser feita pela sessão do portal no próprio serviço). Depois compilo e valido com chamadas reais.
+
+Edited file
+SecurityConfig.java
++1
+-1
+
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/auth/login", "/health").permitAll()
+                        .requestMatchers("/auth/login", "/health", "/client-portal/**").permitAll()
+                        .anyRequest().authenticated())
+Ran $enc = New-Object System.Text.UTF8Encoding($false); Get-ChildItem -Path backend -Recurse -File | Where-Object { $_.Extension -in '.java','.yml','.yaml','.sql','.xml','.md' } | ForEach-Object { $c=[System.IO.File]::ReadAllText($_.FullName); [System.IO.File]::WriteAllText($_.FullName,$c,$enc) }
+
+
+Ran mvn -q -DskipTests compile for 7s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force for 1s
+
+
+Ran docker compose up -d postgres for 1s
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 18; Write-Output ("PID=" + $p.Id) for 22s
+
+
+Ran try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message } for 1s
+
+
+Ran Select-String -Path api.out.log -Pattern 'version "4"|Started PainelApiApplication|ERROR' -Context 0,1
+
+
+Ran docker exec painel-postgres psql -U postgres -d painel_cliente -c "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;"
+
+
+Migração V4 está aplicada. Vou validar agora o fluxo real de ponta a ponta: gerar link no staff, extrair token, autenticar cliente com cpfLast3, e consumir /client-portal/me e /client-portal/case usando a sessão criada.
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $token = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $clientSession = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$token; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $clientSession.sessionToken }; $me = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/client-portal/me' -Headers $clientHeaders; $casePortal = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/client-portal/case' -Headers $clientHeaders; [PSCustomObject]@{ caseId=$case.id; sessionOk=$clientSession.ok; hasSessionToken=([string]::IsNullOrWhiteSpace($clientSession.sessionToken) -eq $false); meCaseId=$me.caseId; portalCaseId=$casePortal.caseId; clientName=$me.clientName } | ConvertTo-Json -Compress for 1s
+
+
+Ran $ErrorActionPreference='Continue'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $token = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; try { Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$token; cpfLast3='999' } | ConvertTo-Json) | ConvertTo-Json -Compress } catch { $resp=$_.Exception.Response; if($resp -and $resp.GetResponseStream()){ $r=New-Object IO.StreamReader($resp.GetResponseStream()); $r.ReadToEnd() } else { $_.Exception.Message } } for 1s
+
+
+Fluxo validado, inclusive erro 401 para CPF incorreto. Vou atualizar o README da API com os novos endpoints e variáveis da Etapa 4 antes de fechar.
+
+Edited file
+README.md
++9
+-4
+
+- `POST /cases/{id}/portal-link/revoke`
+- `POST /client-portal/session` (`token + cpfLast3`)
+- `GET /client-portal/me`
+- `GET /client-portal/case`
+- `POST /client-portal/logout`
+
+- `APP_PORTAL_DEFAULT_TTL_MINUTES`
+- `APP_PORTAL_CLIENT_SESSION_MINUTES`
+
+## Proxima etapa recomendada
+1. Implementar validacao `token + cpfLast3` em `POST /client-portal/session`.
+2. Expor endpoints `client-portal/*` com filtro `CLIENT_VISIBLE`.
+3. Incluir auditoria por acao no `audit_log`.
+4. Integrar upload de documentos com storage externo (presigned URL).
+1. Expor endpoints `client-portal/*` para updates/documentos com filtro `CLIENT_VISIBLE`.
+2. Incluir auditoria por acao no `audit_log`.
+3. Integrar upload de documentos com storage externo (presigned URL).
+4. Implementar rate-limit para tentativa de CPF no `POST /client-portal/session`.
+Ran mvn -q -DskipTests compile for 6s
+
+
+Worked for 4m 59s
+Etapa 4 concluída e validada.
+
+O que foi implementado
+
+Sessão de cliente do portal com tabela dedicada:
+V4__create_client_portal_sessions.sql
+Fluxo token + cpfLast3:
+valida hash do token em case_portal_links
+valida status/expiração do link
+valida os 3 dígitos do CPF do cliente
+cria sessão curta separada do staff
+retorna sessionToken e também seta cookie CLIENT_PORTAL_SESSION
+implementação em ClientPortalSessionService.java
+Endpoints do portal:
+POST /client-portal/session
+GET /client-portal/me
+GET /client-portal/case
+POST /client-portal/logout
+controller: ClientPortalController.java
+Segurança ajustada para rotas do portal com auth própria da sessão cliente:
+SecurityConfig.java
+Tratamento de 401 com exceção específica:
+UnauthorizedException.java
+Validação executada
+
+mvn -DskipTests compile OK
+Migrações aplicadas até v4
+Smoke test completo OK:
+staff ativa link do caso
+cliente cria sessão com token + cpfLast3
+GET /client-portal/me e GET /client-portal/case retornando o mesmo caseId
+Teste negativo OK:
+CPF inválido retorna 401 com mensagem "CPF invalido para este link"
+Se quiser, sigo para a próxima etapa: timeline e documentos no client-portal/* com filtro CLIENT_VISIBLE.
+
+
+8 files changed
++48
+-8
+Undo
+
+README.md
+ApiExceptionHandler.java
+UnauthorizedException.java
+SecurityConfig.java
+CasePortalLinkRepository.java
+PortalProperties.java
+application.yml
+V4__create_client_portal_sessions.sql
+
+
+
+Próxima etapa concluída com sucesso.
+
+Entregue
+
+Migração V5 com:
+case_updates
+documents
+índices para performance
+arquivo: V5__create_updates_and_documents.sql
+Modelo de visibilidade único:
+Visibility.java
+Endpoints staff:
+GET/POST /cases/{caseId}/updates
+GET/POST /cases/{caseId}/documents
+Endpoints cliente (filtrados):
+GET /client-portal/updates -> apenas CLIENT_VISIBLE
+GET /client-portal/documents -> apenas CLIENT_VISIBLE
+Serviços principais:
+CaseUpdateService.java
+DocumentService.java
+ClientPortalReadService.java
+Validação executada
+
+mvn -DskipTests compile OK
+V5 aplicada no Flyway
+Smoke test real OK:
+staff criou 2 updates (1 visível, 1 interno) e 2 documentos (1 visível, 1 interno)
+staff listou tudo (2 updates, 2 docs)
+cliente listou só visíveis (1 update, 1 doc)
+visibilidade retornada no portal: CLIENT_VISIBLE
+Se quiser, sigo para a próxima etapa de produção: auditoria (audit_log) + rate-limit de tentativa de CPF no POST /client-portal/session.
+
+
+vamos para a proxima etapa
+
+
+Perfeito, vou tocar a próxima etapa com foco em produção: audit_log e proteção contra tentativa de força bruta no client-portal/session (rate-limit por link). Vou começar pela migração do banco e pela infraestrutura de auditoria.
+
+Created file
+V6__audit_and_portal_ratelimit.sql
++20
+-0
+
+CREATE TABLE audit_log (
+    id UUID PRIMARY KEY,
+    actor_type VARCHAR(20) NOT NULL,
+    actor_id UUID NULL,
+    entity VARCHAR(40) NOT NULL,
+    entity_id UUID NULL,
+    action VARCHAR(40) NOT NULL,
+    details_json TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    ip VARCHAR(80) NULL,
+    user_agent VARCHAR(512) NULL
+);
+
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at DESC);
+CREATE INDEX idx_audit_log_entity ON audit_log(entity, entity_id);
+CREATE INDEX idx_audit_log_actor ON audit_log(actor_type, actor_id);
+
+ALTER TABLE case_portal_links
+    ADD COLUMN failed_attempts INT NOT NULL DEFAULT 0,
+    ADD COLUMN blocked_until TIMESTAMPTZ NULL;
+Migração criada. Vou agora integrar a trilha de auditoria no backend e estender o CasePortalLink para controlar bloqueio temporário por tentativas inválidas.
+
+Edited file
+CasePortalLink.java
++23
+-1
+
+
+    @Column(name = "failed_attempts", nullable = false)
+    private int failedAttempts;
+
+    @Column(name = "blocked_until")
+    private OffsetDateTime blockedUntil;
+
+    @PrePersist
+    }
+}
+
+    public int getFailedAttempts() {
+        return failedAttempts;
+    }
+
+    public void setFailedAttempts(int failedAttempts) {
+        this.failedAttempts = failedAttempts;
+    }
+
+    public OffsetDateTime getBlockedUntil() {
+        return blockedUntil;
+    }
+
+    public void setBlockedUntil(OffsetDateTime blockedUntil) {
+        this.blockedUntil = blockedUntil;
+    }
+}
+Ran New-Item -ItemType Directory -Force -Path backend\src\main\java\com\painel\api\audit | Out-Null
+
+
+Ran @' package com.painel.api.audit; public enum AuditActorType { OFFICE_USER, CLIENT, SYSTEM } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\audit\AuditActorType.java
+
+
+Ran @' package com.painel.api.audit; import jakarta.persistence.Column; import jakarta.persistence.Entity; import jakarta.persistence.Id; import jakarta.persistence.PrePersist; import jakarta.persistence.Table; import java.time.OffsetDateTime; import java.util.UUID; @Entity @Table(name = "audit_log") public class AuditLog { @Id private UUID id; @Column(name = "actor_type", nullable = false, length = 20) private String actorType; @Column(name = "actor_id") private UUID actorId; @Column(nullable = false, length = 40) private String entity; @Column(name = "entity_id") private UUID entityId; @Column(nullable = false, length = 40) private String action; @Column(name = "details_json", columnDefinition = "text") private String detailsJson; @Column(name = "created_at", nullable = false) private OffsetDateTime createdAt; @Column(length = 80) private String ip; @Column(name = "user_agent", length = 512) private String userAgent; @PrePersist void prePersist() { if (id == null) { id = UUID.randomUUID(); } createdAt = OffsetDateTime.now(); } public UUID getId() { return id; } public String getActorType() { return actorType; } public void setActorType(String actorType) { this.actorType = actorType; } public UUID getActorId() { return actorId; } public void setActorId(UUID actorId) { this.actorId = actorId; } public String getEntity() { return entity; } public void setEntity(String entity) { this.entity = entity; } public UUID getEntityId() { return entityId; } public void setEntityId(UUID entityId) { this.entityId = entityId; } public String getAction() { return action; } public void setAction(String action) { this.action = action; } public String getDetailsJson() { return detailsJson; } public void setDetailsJson(String detailsJson) { this.detailsJson = detailsJson; } public OffsetDateTime getCreatedAt() { return createdAt; } public String getIp() { return ip; } public void setIp(String ip) { this.ip = ip; } public String getUserAgent() { return userAgent; } public void setUserAgent(String userAgent) { this.userAgent = userAgent; } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\audit\AuditLog.java
+
+
+Ran @' package com.painel.api.audit; import java.util.UUID; import org.springframework.data.jpa.repository.JpaRepository; public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\audit\AuditLogRepository.java
+
+
+Ran @' package com.painel.api.audit; import com.fasterxml.jackson.core.JsonProcessingException; import com.fasterxml.jackson.databind.ObjectMapper; import java.util.Map; import java.util.UUID; import org.springframework.stereotype.Service; import org.springframework.web.context.request.RequestContextHolder; import org.springframework.web.context.request.ServletRequestAttributes; @Service public class AuditService { private final AuditLogRepository auditLogRepository; private final ObjectMapper objectMapper; public AuditService(AuditLogRepository auditLogRepository, ObjectMapper objectMapper) { this.auditLogRepository = auditLogRepository; this.objectMapper = objectMapper; } public void log(AuditActorType actorType, UUID actorId, String entity, UUID entityId, String action) { log(actorType, actorId, entity, entityId, action, null); } public void log(AuditActorType actorType, UUID actorId, String entity, UUID entityId, String action, Map<String, Object> details) { AuditLog log = new AuditLog(); log.setActorType(actorType.name()); log.setActorId(actorId); log.setEntity(entity); log.setEntityId(entityId); log.setAction(action); log.setDetailsJson(toJson(details)); ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes(); if (attrs != null) { log.setIp(attrs.getRequest().getRemoteAddr()); log.setUserAgent(attrs.getRequest().getHeader("User-Agent")); } auditLogRepository.save(log); } private String toJson(Map<String, Object> details) { if (details == null || details.isEmpty()) { return null; } try { return objectMapper.writeValueAsString(details); } catch (JsonProcessingException e) { return null; } } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\audit\AuditService.java
+
+
+Edited file
+AuthService.java
++13
+-1
+
+
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.user.OfficeUser;
+import java.time.OffsetDateTime;
+import java.util.Map;
+import org.springframework.security.authentication.BadCredentialsException;
+    private final JwtService jwtService;
+    private final AuditService auditService;
+
+    public AuthService(OfficeUserRepository officeUserRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(OfficeUserRepository officeUserRepository, PasswordEncoder passwordEncoder, JwtService jwtService, AuditService auditService) {
+        this.officeUserRepository = officeUserRepository;
+        this.jwtService = jwtService;
+        this.auditService = auditService;
+    }
+        officeUserRepository.save(user);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                user.getId(),
+                "AUTH",
+                user.getId(),
+                "LOGIN_SUCCESS",
+                Map.of("email", user.getEmail()));
+
+Edited file
+ClientService.java
++12
+-3
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.common.NotFoundException;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+    private final AuthorizationService authorizationService;
+    private final AuditService auditService;
+
+    public ClientService(ClientRepository clientRepository, AuthorizationService authorizationService) {
+    public ClientService(ClientRepository clientRepository, AuthorizationService authorizationService, AuditService auditService) {
+        this.clientRepository = clientRepository;
+        this.authorizationService = authorizationService;
+        this.auditService = auditService;
+    }
+        apply(client, request);
+        return toResponse(clientRepository.save(client));
+        Client saved = clientRepository.save(client);
+        auditService.log(AuditActorType.OFFICE_USER, actor.getId(), "CLIENT", saved.getId(), "CREATE", Map.of("name", saved.getName()));
+        return toResponse(saved);
+    }
+        apply(client, request);
+        return toResponse(clientRepository.save(client));
+        Client saved = clientRepository.save(client);
+        auditService.log(AuditActorType.OFFICE_USER, actor.getId(), "CLIENT", saved.getId(), "UPDATE", Map.of("name", saved.getName()));
+        return toResponse(saved);
+    }
+Edited file
+CaseService.java
++30
+-2
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.client.Client;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+    private final AuthorizationService authorizationService;
+    private final AuditService auditService;
+
+            OfficeUserRepository officeUserRepository,
+            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            AuditService auditService) {
+        this.caseFileRepository = caseFileRepository;
+        this.authorizationService = authorizationService;
+        this.auditService = auditService;
+    }
+        upsertMember(saved, actor, CaseMemberPermission.OWNER);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE",
+                saved.getId(),
+                "CREATE",
+                Map.of("title", saved.getTitle(), "clientId", saved.getClient().getId().toString()));
+        return toResponse(saved);
+        apply(caseFile, request);
+        return toResponse(caseFileRepository.save(caseFile));
+        CaseFile saved = caseFileRepository.save(caseFile);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE",
+                saved.getId(),
+                "UPDATE",
+                Map.of("status", saved.getStatus().name(), "priority", saved.getPriority().name()));
+        return toResponse(saved);
+    }
+        CaseMember saved = upsertMember(caseFile, user, request.permission());
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_MEMBER",
+                caseId,
+                "UPSERT",
+                Map.of("userId", user.getId().toString(), "permission", request.permission().name()));
+        return new CaseMemberResponse(
+Edited file
+CaseUpdateService.java
++16
+-2
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.casefile.CaseFile;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+    private final AuthorizationService authorizationService;
+    private final AuditService auditService;
+
+            CaseFileRepository caseFileRepository,
+            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            AuditService auditService) {
+        this.caseUpdateRepository = caseUpdateRepository;
+        this.authorizationService = authorizationService;
+        this.auditService = auditService;
+    }
+
+        return toResponse(caseUpdateRepository.save(update));
+        CaseUpdate saved = caseUpdateRepository.save(update);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_UPDATE",
+                saved.getId(),
+                "CREATE",
+                Map.of("caseId", caseId.toString(), "visibility", saved.getVisibility().name(), "type", saved.getType()));
+        return toResponse(saved);
+    }
+Edited file
+DocumentService.java
++16
+-2
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.casefile.CaseFile;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+    private final AuthorizationService authorizationService;
+    private final AuditService auditService;
+
+            CaseFileRepository caseFileRepository,
+            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            AuditService auditService) {
+        this.documentRepository = documentRepository;
+        this.authorizationService = authorizationService;
+        this.auditService = auditService;
+    }
+
+        return toResponse(documentRepository.save(document));
+        Document saved = documentRepository.save(document);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "DOCUMENT",
+                saved.getId(),
+                "CREATE",
+                Map.of("caseId", caseId.toString(), "visibility", saved.getVisibility().name(), "storageKey", saved.getStorageKey()));
+        return toResponse(saved);
+    }
+Integrei auditoria nas entidades principais. Agora vou aplicar logging no ciclo de portal-link e implementar o rate-limit no login do portal cliente.
+
+Edited file
+PortalLinkService.java
++21
+-1
+
+import com.painel.api.auth.AuthorizationService;
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.casefile.CaseFile;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+    private final PortalProperties portalProperties;
+    private final AuditService auditService;
+
+            PortalTokenService portalTokenService,
+            PortalProperties portalProperties) {
+            PortalProperties portalProperties,
+            AuditService auditService) {
+        this.casePortalLinkRepository = casePortalLinkRepository;
+        this.portalProperties = portalProperties;
+        this.auditService = auditService;
+    }
+        CasePortalLink saved = casePortalLinkRepository.save(link);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "PORTAL_LINK",
+                saved.getId(),
+                "ACTIVATE",
+                Map.of("caseId", caseId.toString(), "expiresAt", saved.getExpiresAt().toString()));
+        return toResponse(saved, buildPortalUrl(token));
+        }
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "PORTAL_LINK",
+                latest.getId(),
+                "REVOKE",
+                Map.of("caseId", caseId.toString()));
+        return toResponse(latest, null);
+Edited file
+ClientPortalSessionService.java
++56
+-2
+
+
+import com.painel.api.audit.AuditActorType;
+import com.painel.api.audit.AuditService;
+import com.painel.api.common.UnauthorizedException;
+import java.time.OffsetDateTime;
+import java.util.Map;
+import org.springframework.stereotype.Service;
+    public static final String CLIENT_PORTAL_HEADER = "X-Client-Session";
+    private static final int MAX_FAILED_ATTEMPTS = 5;
+    private static final int BLOCK_MINUTES = 10;
+
+    private final PortalProperties portalProperties;
+    private final AuditService auditService;
+
+            PortalTokenService portalTokenService,
+            PortalProperties portalProperties) {
+            PortalProperties portalProperties,
+            AuditService auditService) {
+        this.casePortalLinkRepository = casePortalLinkRepository;
+        this.portalProperties = portalProperties;
+        this.auditService = auditService;
+    }
+        if (token == null || token.isBlank() || cpfLast3 == null || cpfLast3.length() != 3) {
+            auditService.log(AuditActorType.CLIENT, null, "CLIENT_PORTAL_SESSION", null, "LOGIN_FAIL_INVALID_INPUT");
+            throw new UnauthorizedException("Token ou CPF invalido");
+        CasePortalLink link = casePortalLinkRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new UnauthorizedException("Link invalido"));
+                .orElseThrow(() -> {
+                    auditService.log(AuditActorType.CLIENT, null, "PORTAL_LINK", null, "LOGIN_FAIL_INVALID_TOKEN");
+                    return new UnauthorizedException("Link invalido");
+                });
+
+        if (link.getBlockedUntil() != null && link.getBlockedUntil().isAfter(OffsetDateTime.now())) {
+            auditService.log(
+                    AuditActorType.CLIENT,
+                    link.getClient().getId(),
+                    "PORTAL_LINK",
+                    link.getId(),
+                    "LOGIN_BLOCKED",
+                    Map.of("blockedUntil", link.getBlockedUntil().toString()));
+            throw new UnauthorizedException("Muitas tentativas. Aguarde alguns minutos.");
+        }
+
+        if (link.getStatus() == PortalLinkStatus.REVOKED) {
+            auditService.log(AuditActorType.CLIENT, link.getClient().getId(), "PORTAL_LINK", link.getId(), "LOGIN_FAIL_REVOKED");
+            throw new UnauthorizedException("Link revogado");
+            casePortalLinkRepository.save(link);
+            auditService.log(AuditActorType.CLIENT, link.getClient().getId(), "PORTAL_LINK", link.getId(), "LOGIN_FAIL_EXPIRED");
+            throw new UnauthorizedException("Link expirado");
+        if (link.getStatus() != PortalLinkStatus.ACTIVE) {
+            auditService.log(AuditActorType.CLIENT, link.getClient().getId(), "PORTAL_LINK", link.getId(), "LOGIN_FAIL_INACTIVE");
+            throw new UnauthorizedException("Link inativo");
+        if (clientLast3 == null || !clientLast3.equals(cpfLast3)) {
+            int failed = link.getFailedAttempts() + 1;
+            link.setFailedAttempts(failed);
+            if (failed >= MAX_FAILED_ATTEMPTS) {
+                link.setBlockedUntil(OffsetDateTime.now().plusMinutes(BLOCK_MINUTES));
+            }
+            casePortalLinkRepository.save(link);
+            auditService.log(
+                    AuditActorType.CLIENT,
+                    link.getClient().getId(),
+                    "PORTAL_LINK",
+                    link.getId(),
+                    "LOGIN_FAIL_CPF",
+                    Map.of("failedAttempts", failed));
+            throw new UnauthorizedException("CPF invalido para este link");
+
+        link.setFailedAttempts(0);
+        link.setBlockedUntil(null);
+        link.setLastAccessAt(OffsetDateTime.now());
+        setSessionCookie(httpResponse, rawSessionToken, portalProperties.clientSessionMinutes() * 60);
+        auditService.log(
+                AuditActorType.CLIENT,
+                link.getClient().getId(),
+                "CLIENT_PORTAL_SESSION",
+                session.getId(),
+                "LOGIN_SUCCESS",
+                Map.of("caseId", link.getCaseFile().getId().toString()));
+        return new ClientPortalSessionResponse(true, rawSessionToken, session.getExpiresAt());
+                clientPortalSessionRepository.save(session);
+                auditService.log(
+                        AuditActorType.CLIENT,
+                        session.getClient().getId(),
+                        "CLIENT_PORTAL_SESSION",
+                        session.getId(),
+                        "LOGOUT");
+            });
+Auditoria e rate-limit já foram acoplados no código. Vou normalizar encoding, compilar e validar dois cenários: login cliente válido e bloqueio após tentativas de CPF inválido.
+
+Ran $enc = New-Object System.Text.UTF8Encoding($false); Get-ChildItem -Path backend -Recurse -File | Where-Object { $_.Extension -in '.java','.yml','.yaml','.sql','.xml','.md' } | ForEach-Object { $c=[System.IO.File]::ReadAllText($_.FullName); [System.IO.File]::WriteAllText($_.FullName,$c,$enc) }
+
+
+Ran mvn -q -DskipTests compile for 6s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+
+Ran docker compose up -d postgres for 1s
+
+
+Ran docker info for 1s
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 18; Write-Output ("PID=" + $p.Id); if (Test-Path $out) { Get-Content $out -Tail 60 } for 18s
+
+
+Ran Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'; Start-Sleep -Seconds 12; docker info for 13s
+
+
+Ran docker compose up -d postgres for 1s
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 18; Write-Output ("PID=" + $p.Id) for 22s
+
+
+Ran (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content
+
+
+Ran docker exec painel-postgres psql -U postgres -d painel_cliente -c "SELECT version, success FROM flyway_schema_history WHERE version='6';"
+
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $caseId = $case.id; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $token = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $statuses = @(); for($i=1;$i -le 6;$i++){ try { Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$token; cpfLast3='999' } | ConvertTo-Json) | Out-Null; $statuses += "try${i}:OK"; } catch { $resp = $_.Exception.Response; if($resp -and $resp.GetResponseStream()){ $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $txt = $reader.ReadToEnd(); $statuses += "try${i}:" + $txt; } else { $statuses += "try${i}:" + $_.Exception.Message; } } } # tentativa com cpf correto apos bloqueio try { $ok = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$token; cpfLast3='123' } | ConvertTo-Json); $correctAfterBlock = 'OK'; } catch { $resp = $_.Exception.Response; if($resp -and $resp.GetResponseStream()){ $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $correctAfterBlock = $reader.ReadToEnd(); } else { $correctAfterBlock = $_.Exception.Message; } } [PSCustomObject]@{ caseId = $caseId; attempts = $statuses; correctAfterBlock = $correctAfterBlock } | ConvertTo-Json -Depth 5 for 1s
+
+
+O rate-limit ainda não bloqueou porque as tentativas falhas estavam sendo revertidas pelo rollback da transação ao lançar UnauthorizedException. Vou ajustar para não dar rollback nesse caso e revalidar.
+
+Edited file
+ClientPortalSessionService.java
++1
+-1
+
+
+    @Transactional
+    @Transactional(noRollbackFor = UnauthorizedException.class)
+    public ClientPortalSessionResponse createSession(
+Ran mvn -q -DskipTests compile for 4s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force for 1s
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force }; if (Test-Path $err) { Remove-Item $err -Force }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 14; Write-Output ("PID=" + $p.Id) for 15s
+
+
+A API já reiniciou, mas houve um lock no arquivo de log durante rotação; isso não impacta execução. Vou seguir com o teste de bloqueio para confirmar o rate-limit.
+
+Ran (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content for 4s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Select-Object Id,StartTime | Format-Table -AutoSize; if (Test-Path api.out.log) { Get-Content api.out.log -Tail 40 }
+
+
+Ran Test-Path backend\target\classes\com\painel\api\PainelApiApplication.class; if (-not (Test-Path backend\target\classes\com\painel\api\PainelApiApplication.class)) { Get-ChildItem backend\target\classes\com\painel\api -Recurse -File | Select-Object -First 20 | ForEach-Object { $_.FullName } }
+
+
+Ran mvn -Dspring-boot.run.profiles=dev spring-boot:run for 2s
+
+
+Ran mvn spring-boot:run -Dspring-boot.run.profiles=dev for 3s
+
+
+Ran mvn.cmd spring-boot:run "-Dspring-boot.run.profiles=dev" for 49s
+
+
+Encontrei um detalhe de execução no PowerShell com mvn; vou fixar usando mvn.cmd explicitamente no start em background e validar saúde da API para continuar o teste de bloqueio.
+
+Ran $out='api.out.log'; $err='api.err.log'; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 12; Write-Output ("PID=" + $p.Id); for 12s
+
+
+Ran try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message }
+
+
+Ran Get-Content api.out.log -Tail 40
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; $out='api.out.log'; $err='api.err.log'; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 14; Write-Output ("PID=" + $p.Id); try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message } for 22s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Select-Object Id,StartTime | Format-Table -AutoSize
+
+
+Ran if (Test-Path api.out.log) { Get-Content api.out.log -Tail 30 }
+
+
+Ran try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message }
+
+
+A API está ativa com o código novo. Vou reexecutar o teste de tentativas inválidas para confirmar o bloqueio após o limite configurado.
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $caseId = $case.id; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $token = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $attemptMessages = @(); for($i=1;$i -le 6;$i++){ try { Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$token; cpfLast3='999' } | ConvertTo-Json) | Out-Null; $attemptMessages += "try${i}:OK"; } catch { $resp = $_.Exception.Response; if($resp -and $resp.GetResponseStream()){ $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $attemptMessages += "try${i}:" + $reader.ReadToEnd(); } else { $attemptMessages += "try${i}:" + $_.Exception.Message; } } } try { Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$token; cpfLast3='123' } | ConvertTo-Json) | Out-Null; $correctAfterBlock = 'OK'; } catch { $resp = $_.Exception.Response; if($resp -and $resp.GetResponseStream()){ $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $correctAfterBlock = $reader.ReadToEnd(); } else { $correctAfterBlock = $_.Exception.Message; } } [PSCustomObject]@{ caseId=$caseId; attempts=$attemptMessages; correctAfterBlock=$correctAfterBlock } | ConvertTo-Json -Depth 5 for 1s
+
+
+Ran docker exec painel-postgres psql -U postgres -d painel_cliente -c "SELECT actor_type, entity, action, created_at FROM audit_log ORDER BY created_at DESC LIMIT 12;"
+
+
+Edited file
+README.md
++10
+-4
+
+## Proxima etapa recomendada
+1. Incluir auditoria por acao no `audit_log`.
+2. Integrar upload de documentos com storage externo (presigned URL).
+3. Implementar rate-limit para tentativa de CPF no `POST /client-portal/session`.
+4. Adicionar revogacao/listagem administrativa de sessoes do cliente.
+1. Integrar upload de documentos com storage externo (presigned URL).
+2. Adicionar revogacao/listagem administrativa de sessoes do cliente.
+3. Implementar endpoint de download seguro de documento do cliente.
+4. Cobertura automatizada de testes de integração para auth/portal.
+
+## Seguranca adicional implementada
+- `audit_log` para rastrear ações de staff e cliente
+- rate-limit no `POST /client-portal/session`:
+  - bloqueio do link após 5 tentativas inválidas de CPF
+  - bloqueio por 10 minutos (`Muitas tentativas. Aguarde alguns minutos.`)
+Worked for 8m 50s
+Próxima etapa concluída com sucesso: audit_log + rate-limit no login do portal cliente.
+
+Implementado
+
+Migração V6:
+tabela audit_log
+campos failed_attempts e blocked_until em case_portal_links
+V6__audit_and_portal_ratelimit.sql
+Auditoria central:
+AuditService.java
+AuditLog.java
+Auditoria integrada nas ações críticas:
+login staff (AUTH)
+create/update de clientes e casos
+membros de caso
+criação de updates e documents
+activate/revoke de portal link
+sucesso/falha/bloqueio no login do portal cliente
+Rate-limit no POST /client-portal/session:
+5 tentativas erradas de CPF => bloqueia link por 10 min
+resposta de bloqueio: 401 com mensagem Muitas tentativas. Aguarde alguns minutos.
+lógica em ClientPortalSessionService.java
+Validação executada
+
+Build: mvn -DskipTests compile OK
+Flyway: versão 6 aplicada com sucesso
+Teste real:
+tentativas 1-5 com CPF errado => CPF invalido para este link
+tentativa 6 => bloqueio ativo
+CPF correto após bloqueio => ainda bloqueado (comportamento esperado)
+Auditoria confirmada no banco (audit_log) com ações LOGIN_FAIL_CPF e LOGIN_BLOCKED.
+Se quiser, sigo agora para a próxima etapa: download seguro de documentos do portal cliente com URL assinada.
+
+Perfeito. Vou implementar agora download seguro com URL assinada temporária: geração de token de download (staff e cliente) + endpoint público de resolução por token com expiração curta e uso único. Em seguida valido o fluxo completo.
+
+Created file
+V7__create_document_download_tokens.sql
++13
+-0
+
+CREATE TABLE document_download_tokens (
+    id UUID PRIMARY KEY,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ NULL,
+    actor_type VARCHAR(20) NOT NULL,
+    actor_id UUID NULL
+);
+
+CREATE INDEX idx_document_download_tokens_document_id ON document_download_tokens(document_id);
+CREATE INDEX idx_document_download_tokens_expires_at ON document_download_tokens(expires_at);
+Vou adicionar as classes de domínio e configuração para TTL do link de download, e depois plugar os endpoints.
+
+Ran @' package com.painel.api.document; import java.util.Optional; import java.util.UUID; import org.springframework.data.jpa.repository.JpaRepository; public interface DocumentDownloadTokenRepository extends JpaRepository<DocumentDownloadToken, UUID> { Optional<DocumentDownloadToken> findByTokenHash(String tokenHash); } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentDownloadTokenRepository.java for 2s
+
+
+Ran @' package com.painel.api.document; import jakarta.persistence.Column; import jakarta.persistence.Entity; import jakarta.persistence.Id; import jakarta.persistence.PrePersist; import jakarta.persistence.Table; import java.time.OffsetDateTime; import java.util.UUID; @Entity @Table(name = "document_download_tokens") public class DocumentDownloadToken { @Id private UUID id; @Column(name = "document_id", nullable = false) private UUID documentId; @Column(name = "token_hash", nullable = false, unique = true, length = 128) private String tokenHash; @Column(name = "expires_at", nullable = false) private OffsetDateTime expiresAt; @Column(name = "created_at", nullable = false) private OffsetDateTime createdAt; @Column(name = "used_at") private OffsetDateTime usedAt; @Column(name = "actor_type", nullable = false, length = 20) private String actorType; @Column(name = "actor_id") private UUID actorId; @PrePersist void prePersist() { if (id == null) { id = UUID.randomUUID(); } createdAt = OffsetDateTime.now(); } public UUID getId() { return id; } public UUID getDocumentId() { return documentId; } public void setDocumentId(UUID documentId) { this.documentId = documentId; } public String getTokenHash() { return tokenHash; } public void setTokenHash(String tokenHash) { this.tokenHash = tokenHash; } public OffsetDateTime getExpiresAt() { return expiresAt; } public void setExpiresAt(OffsetDateTime expiresAt) { this.expiresAt = expiresAt; } public OffsetDateTime getCreatedAt() { return createdAt; } public OffsetDateTime getUsedAt() { return usedAt; } public void setUsedAt(OffsetDateTime usedAt) { this.usedAt = usedAt; } public String getActorType() { return actorType; } public void setActorType(String actorType) { this.actorType = actorType; } public UUID getActorId() { return actorId; } public void setActorId(UUID actorId) { this.actorId = actorId; } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentDownloadToken.java for 1s
+
+
+Ran @' package com.painel.api.document; import org.springframework.boot.context.properties.ConfigurationProperties; @ConfigurationProperties(prefix = "app.documents") public record DocumentProperties( int downloadTokenMinutes ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentProperties.java for 2s
+
+
+Edited file
+PropertiesConfig.java
++2
+-1
+
+import com.painel.api.portal.PortalProperties;
+import com.painel.api.document.DocumentProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+@Configuration
+@EnableConfigurationProperties({SecurityProperties.class, CorsProperties.class, PortalProperties.class})
+@EnableConfigurationProperties({SecurityProperties.class, CorsProperties.class, PortalProperties.class, DocumentProperties.class})
+public class PropertiesConfig {
+Edited file
+application.yml
++2
+-0
+
+    client-session-minutes: ${APP_PORTAL_CLIENT_SESSION_MINUTES:120}
+  documents:
+    download-token-minutes: ${APP_DOCUMENT_DOWNLOAD_TOKEN_MINUTES:5}
+  security:
+Agora vou criar o serviço de download seguro e os novos endpoints para staff e cliente (geração do link), além do endpoint público de resolução por token.
+
+Ran @' package com.painel.api.document; import java.time.OffsetDateTime; public record DocumentDownloadLinkResponse( String url, OffsetDateTime expiresAt ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentDownloadLinkResponse.java
+
+
+Ran @' package com.painel.api.document; import java.time.OffsetDateTime; import java.util.UUID; public record DocumentDownloadResolveResponse( UUID documentId, String originalName, String mimeType, long sizeBytes, String storageKey, OffsetDateTime issuedAt ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentDownloadResolveResponse.java
+
+
+Ran @' package com.painel.api.document; import com.painel.api.audit.AuditActorType; import com.painel.api.audit.AuditService; import com.painel.api.auth.AuthorizationService; import com.painel.api.common.NotFoundException; import com.painel.api.common.UnauthorizedException; import com.painel.api.common.Visibility; import com.painel.api.portal.ClientPortalSession; import com.painel.api.portal.ClientPortalSessionService; import com.painel.api.portal.PortalTokenService; import com.painel.api.user.OfficeUser; import jakarta.servlet.http.HttpServletRequest; import java.time.OffsetDateTime; import java.util.Map; import java.util.UUID; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; @Service public class DocumentDownloadService { private final DocumentRepository documentRepository; private final DocumentDownloadTokenRepository tokenRepository; private final AuthorizationService authorizationService; private final ClientPortalSessionService clientPortalSessionService; private final PortalTokenService portalTokenService; private final DocumentProperties documentProperties; private final AuditService auditService; public DocumentDownloadService( DocumentRepository documentRepository, DocumentDownloadTokenRepository tokenRepository, AuthorizationService authorizationService, ClientPortalSessionService clientPortalSessionService, PortalTokenService portalTokenService, DocumentProperties documentProperties, AuditService auditService) { this.documentRepository = documentRepository; this.tokenRepository = tokenRepository; this.authorizationService = authorizationService; this.clientPortalSessionService = clientPortalSessionService; this.portalTokenService = portalTokenService; this.documentProperties = documentProperties; this.auditService = auditService; } @Transactional public DocumentDownloadLinkResponse createStaffDownloadLink(UUID documentId, OfficeUser actor) { Document document = findDocument(documentId); authorizationService.requireCaseReadAccess(actor, document.getCaseFile().getId()); return createToken(document, AuditActorType.OFFICE_USER, actor.getId()); } @Transactional public DocumentDownloadLinkResponse createClientDownloadLink(UUID documentId, HttpServletRequest request) { ClientPortalSession session = clientPortalSessionService.resolveSession(request); Document document = findDocument(documentId); if (!document.getCaseFile().getId().equals(session.getCaseFile().getId())) { throw new UnauthorizedException("Documento nao pertence ao caso da sessao"); } if (document.getVisibility() != Visibility.CLIENT_VISIBLE) { throw new UnauthorizedException("Documento indisponivel para o cliente"); } return createToken(document, AuditActorType.CLIENT, session.getClient().getId()); } @Transactional public DocumentDownloadResolveResponse resolve(String token) { if (token == null || token.isBlank()) { throw new UnauthorizedException("Token de download invalido"); } String hash = portalTokenService.hash(token.trim()); DocumentDownloadToken downloadToken = tokenRepository.findByTokenHash(hash) .orElseThrow(() -> new UnauthorizedException("Token de download invalido")); if (downloadToken.getUsedAt() != null) { throw new UnauthorizedException("Token de download ja utilizado"); } if (downloadToken.getExpiresAt().isBefore(OffsetDateTime.now())) { throw new UnauthorizedException("Token de download expirado"); } Document document = findDocument(downloadToken.getDocumentId()); downloadToken.setUsedAt(OffsetDateTime.now()); tokenRepository.save(downloadToken); auditService.log( AuditActorType.valueOf(downloadToken.getActorType()), downloadToken.getActorId(), "DOCUMENT", document.getId(), "DOWNLOAD_RESOLVE", Map.of("storageKey", document.getStorageKey())); return new DocumentDownloadResolveResponse( document.getId(), document.getOriginalName(), document.getMimeType(), document.getSizeBytes(), document.getStorageKey(), downloadToken.getCreatedAt()); } private DocumentDownloadLinkResponse createToken(Document document, AuditActorType actorType, UUID actorId) { String rawToken = portalTokenService.generateToken(); String hash = portalTokenService.hash(rawToken); OffsetDateTime expiresAt = OffsetDateTime.now().plusMinutes(documentProperties.downloadTokenMinutes()); DocumentDownloadToken token = new DocumentDownloadToken(); token.setDocumentId(document.getId()); token.setTokenHash(hash); token.setExpiresAt(expiresAt); token.setActorType(actorType.name()); token.setActorId(actorId); tokenRepository.save(token); auditService.log(actorType, actorId, "DOCUMENT", document.getId(), "DOWNLOAD_LINK_CREATE", Map.of("expiresAt", expiresAt.toString())); return new DocumentDownloadLinkResponse("/documents/download?token=" + rawToken, expiresAt); } private Document findDocument(UUID id) { return documentRepository.findById(id) .orElseThrow(() -> new NotFoundException("Documento nao encontrado")); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentDownloadService.java
+
+
+Edited file
+DocumentController.java
++17
+-1
+
+    }
+}
+
+    @PostMapping("/{documentId}/download-link")
+    @ResponseStatus(HttpStatus.OK)
+    public DocumentDownloadLinkResponse createDownloadLink(
+            @PathVariable UUID caseId,
+            @PathVariable UUID documentId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return documentDownloadService.createStaffDownloadLink(documentId, actor);
+    }
+
+    private final DocumentDownloadService documentDownloadService;
+
+    public DocumentController(DocumentService documentService, DocumentDownloadService documentDownloadService) {
+        this.documentService = documentService;
+        this.documentDownloadService = documentDownloadService;
+    }
+}
+Fiz a adição do endpoint de download no controller de documentos; vou ajustar a estrutura da classe agora porque o patch inseriu o novo construtor/campo em posição ruim.
+
+Ran Get-Content backend\src\main\java\com\painel\api\document\DocumentController.java
+
+
+Edited file
+DocumentController.java
++3
+-8
+
+    private final DocumentService documentService;
+    private final DocumentDownloadService documentDownloadService;
+
+    public DocumentController(DocumentService documentService) {
+    public DocumentController(DocumentService documentService, DocumentDownloadService documentDownloadService) {
+        this.documentService = documentService;
+        this.documentDownloadService = documentDownloadService;
+    }
+        return documentDownloadService.createStaffDownloadLink(documentId, actor);
+    }
+
+    private final DocumentDownloadService documentDownloadService;
+
+    public DocumentController(DocumentService documentService, DocumentDownloadService documentDownloadService) {
+        this.documentService = documentService;
+        this.documentDownloadService = documentDownloadService;
+    }
+Edited file
+ClientPortalReadController.java
++17
+-2
+
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+    private final ClientPortalReadService clientPortalReadService;
+    private final com.painel.api.document.DocumentDownloadService documentDownloadService;
+
+    public ClientPortalReadController(ClientPortalReadService clientPortalReadService) {
+    public ClientPortalReadController(
+            ClientPortalReadService clientPortalReadService,
+            com.painel.api.document.DocumentDownloadService documentDownloadService) {
+        this.clientPortalReadService = clientPortalReadService;
+        this.documentDownloadService = documentDownloadService;
+    }
+    }
+}
+
+    @PostMapping("/documents/{documentId}/download-link")
+    @ResponseStatus(HttpStatus.OK)
+    public com.painel.api.document.DocumentDownloadLinkResponse documentDownloadLink(
+            @PathVariable UUID documentId,
+            HttpServletRequest request) {
+        return documentDownloadService.createClientDownloadLink(documentId, request);
+    }
+}
+Edited file
+ClientPortalReadController.java
++5
+-3
+
+
+import com.painel.api.document.DocumentDownloadLinkResponse;
+import com.painel.api.document.DocumentDownloadService;
+import com.painel.api.document.DocumentResponse;
+    private final ClientPortalReadService clientPortalReadService;
+    private final com.painel.api.document.DocumentDownloadService documentDownloadService;
+    private final DocumentDownloadService documentDownloadService;
+
+            ClientPortalReadService clientPortalReadService,
+            com.painel.api.document.DocumentDownloadService documentDownloadService) {
+            DocumentDownloadService documentDownloadService) {
+        this.clientPortalReadService = clientPortalReadService;
+    @ResponseStatus(HttpStatus.OK)
+    public com.painel.api.document.DocumentDownloadLinkResponse documentDownloadLink(
+    public DocumentDownloadLinkResponse documentDownloadLink(
+            @PathVariable UUID documentId,
+Ran @' package com.painel.api.document; import org.springframework.http.HttpStatus; import org.springframework.web.bind.annotation.GetMapping; import org.springframework.web.bind.annotation.RequestMapping; import org.springframework.web.bind.annotation.RequestParam; import org.springframework.web.bind.annotation.ResponseStatus; import org.springframework.web.bind.annotation.RestController; @RestController @RequestMapping("/documents") public class DocumentDownloadController { private final DocumentDownloadService documentDownloadService; public DocumentDownloadController(DocumentDownloadService documentDownloadService) { this.documentDownloadService = documentDownloadService; } @GetMapping("/download") @ResponseStatus(HttpStatus.OK) public DocumentDownloadResolveResponse resolve(@RequestParam String token) { return documentDownloadService.resolve(token); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentDownloadController.java for 1s
+
+
+Edited file
+SecurityConfig.java
++1
+-1
+
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/auth/login", "/health", "/client-portal/**").permitAll()
+                        .requestMatchers("/auth/login", "/health", "/client-portal/**", "/documents/download").permitAll()
+                        .anyRequest().authenticated())
+Endpoints de download seguro já foram adicionados. Vou normalizar encoding e rodar build; depois subo e testo os três fluxos: link staff, link cliente e resolução de uso único.
+
+Ran $enc = New-Object System.Text.UTF8Encoding($false); Get-ChildItem -Path backend -Recurse -File | Where-Object { $_.Extension -in '.java','.yml','.yaml','.sql','.xml','.md' } | ForEach-Object { $c=[System.IO.File]::ReadAllText($_.FullName); [System.IO.File]::WriteAllText($_.FullName,$c,$enc) } for 1s
+
+
+Ran mvn -q -DskipTests compile for 9s
+
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force for 1s
+
+
+Ran docker compose up -d postgres
+
+
+Ran $out='api.out.log'; $err='api.err.log'; if (Test-Path $out) { Remove-Item $out -Force -ErrorAction SilentlyContinue }; if (Test-Path $err) { Remove-Item $err -Force -ErrorAction SilentlyContinue }; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 16; Write-Output ("PID=" + $p.Id) for 20s
+
+
+Ran (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content for 1s
+
+
+Ran docker exec painel-postgres psql -U postgres -d painel_cliente -c "SELECT version, success FROM flyway_schema_history WHERE version='7';" for 1s
+
+
+API e migração V7 estão ativas. Vou executar o smoke test completo do download seguro, incluindo teste de uso único e restrição de visibilidade para cliente.
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $caseId = $case.id; $docs = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/documents") -Headers $staffHeaders; if (($docs | Measure-Object).Count -eq 0) { Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/documents") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ visibility='CLIENT_VISIBLE'; originalName='doc-cliente-novo.pdf'; mimeType='application/pdf'; sizeBytes=1111; storageKey='cases/teste/doc-cliente-novo.pdf'; checksum='zzz111' } | ConvertTo-Json) | Out-Null; $docs = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/documents") -Headers $staffHeaders; } $clientVisible = $docs | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1; $internal = $docs | Where-Object { $_.visibility -eq 'INTERNAL_ONLY' } | Select-Object -First 1; $staffLink = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/documents/$($clientVisible.id)/download-link") -Headers $staffHeaders; $token1 = ([System.Uri]("http://localhost:8080" + $staffLink.url)).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $resolved1 = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/documents/download?token=" + $token1); try { $resolvedAgain = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/documents/download?token=" + $token1); $secondUse = 'OK'; } catch { $resp = $_.Exception.Response; $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $secondUse = $reader.ReadToEnd(); } $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $clientSession = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $clientSession.sessionToken }; $clientLink = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$($clientVisible.id)/download-link") -Headers $clientHeaders; $token2 = ([System.Uri]("http://localhost:8080" + $clientLink.url)).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $resolved2 = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/documents/download?token=" + $token2); $clientInternalResult = 'N/A'; if ($internal) { try { Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$($internal.id)/download-link") -Headers $clientHeaders | Out-Null; $clientInternalResult = 'OK'; } catch { $resp = $_.Exception.Response; $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $clientInternalResult = $reader.ReadToEnd(); } } [PSCustomObject]@{ caseId = $caseId; staffDocId = $clientVisible.id; staffResolveDocId = $resolved1.documentId; secondUse = $secondUse; clientResolveDocId = $resolved2.documentId; internalDownloadAttempt = $clientInternalResult } | ConvertTo-Json -Depth 6 for 1s
+
+
+Edited file
+README.md
++6
+-0
+
+- `GET/POST /cases/{id}/documents`
+- `POST /cases/{id}/documents/{documentId}/download-link`
+- `GET /cases/{id}/portal-link`
+- `GET /client-portal/documents` (somente `CLIENT_VISIBLE`)
+- `POST /client-portal/documents/{documentId}/download-link`
+- `POST /client-portal/logout`
+- `GET /documents/download?token=...` (token temporario, uso unico)
+
+  - bloqueio por 10 minutos (`Muitas tentativas. Aguarde alguns minutos.`)
+- download seguro de documento:
+  - token temporario com expiracao curta
+  - uso unico (segunda tentativa falha)
+Fluxo validado com sucesso (incluindo token de uso único). Vou fechar com build final para garantir consistência.
+
+Ran mvn -q -DskipTests compile for 3s
+
+
+Worked for 4m 36s
+Etapa concluída: download seguro de documentos com token temporário e uso único.
+
+Implementado
+
+Migração V7:
+V7__create_document_download_tokens.sql
+Geração e resolução de token de download:
+DocumentDownloadService.java
+DocumentDownloadToken.java
+Endpoints novos:
+Staff: POST /cases/{caseId}/documents/{documentId}/download-link
+Cliente: POST /client-portal/documents/{documentId}/download-link
+Resolução pública por token: GET /documents/download?token=...
+Controllers:
+DocumentController.java
+ClientPortalReadController.java
+DocumentDownloadController.java
+Segurança:
+token curto (configurado por app.documents.download-token-minutes)
+uso único (used_at), segunda tentativa falha
+cliente só gera link para documento CLIENT_VISIBLE do próprio caso
+Validação executada
+
+Build: mvn -DskipTests compile OK
+Flyway v7 aplicado
+Smoke test OK:
+staff gera link e resolve
+segunda resolução do mesmo token retorna 401 (Token de download ja utilizado)
+cliente gera link de doc visível e resolve
+cliente tentando doc interno retorna 401 (Documento indisponivel para o cliente)
+Se quiser, sigo para a próxima etapa: integração com storage real (presigned URL S3/MinIO) para substituir storageKey estático por download direto assinado.
+
+
+7 files changed
++56
+-6
+Undo
+
+README.md
+PropertiesConfig.java
+SecurityConfig.java
+DocumentController.java
+ClientPortalReadController.java
+application.yml
+V7__create_document_download_tokens.sql
+
+Perfeito, vou integrar S3/MinIO agora em modo produção: presign de upload, confirmação de metadado no Postgres e download assinado real no lugar de storageKey puro. Começo adicionando as dependências e configuração de storage.
+
+Ran Get-Content backend\pom.xml
+
+
+Ran Get-Content backend\docker-compose.yml
+
+
+Ran Get-Content backend\src\main\java\com\painel\api\document\DocumentService.java
+
+
+Vou aplicar as alterações de storage em bloco: SDK AWS S3, config MinIO/S3, endpoints presign/confirm e download resolvendo para URL assinada real. Depois valido compile e fluxo de API.
+
+Edited file
+pom.xml
++10
+-0
+
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <version>2.30.36</version>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3-presigner</artifactId>
+      <version>2.30.36</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+Ran New-Item -ItemType Directory -Force -Path backend\src\main\java\com\painel\api\storage | Out-Null
+
+
+Ran @' package com.painel.api.storage; import org.springframework.boot.context.properties.ConfigurationProperties; @ConfigurationProperties(prefix = "app.storage") public record StorageProperties( boolean enabled, String endpoint, String region, String bucket, String accessKey, String secretKey, boolean pathStyle, int uploadUrlMinutes, int downloadUrlMinutes ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\storage\StorageProperties.java
+
+
+Ran @' package com.painel.api.storage; import com.painel.api.common.ForbiddenException; public class StorageUnavailableException extends ForbiddenException { public StorageUnavailableException(String message) { super(message); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\storage\StorageUnavailableException.java
+
+
+Ran @' package com.painel.api.storage; import java.time.OffsetDateTime; public record PresignedUpload( String uploadUrl, String storageKey, OffsetDateTime expiresAt, String method, String contentType ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\storage\PresignedUpload.java
+
+
+Ran @' package com.painel.api.storage; import java.net.URI; import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty; import org.springframework.context.annotation.Bean; import org.springframework.context.annotation.Configuration; import software.amazon.awssdk.auth.credentials.AwsBasicCredentials; import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider; import software.amazon.awssdk.regions.Region; import software.amazon.awssdk.services.s3.S3Configuration; import software.amazon.awssdk.services.s3.S3Presigner; @Configuration public class StorageConfig { @Bean @ConditionalOnProperty(prefix = "app.storage", name = "enabled", havingValue = "true") public S3Presigner s3Presigner(StorageProperties properties) { return S3Presigner.builder() .credentialsProvider(StaticCredentialsProvider.create( AwsBasicCredentials.create(properties.accessKey(), properties.secretKey()))) .region(Region.of(properties.region())) .endpointOverride(URI.create(properties.endpoint())) .serviceConfiguration(S3Configuration.builder() .pathStyleAccessEnabled(properties.pathStyle()) .build()) .build(); } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\storage\StorageConfig.java
+
+
+Ran @' package com.painel.api.storage; import java.time.Duration; import java.time.OffsetDateTime; import java.util.UUID; import java.util.regex.Pattern; import org.springframework.beans.factory.ObjectProvider; import org.springframework.stereotype.Service; import software.amazon.awssdk.services.s3.S3Presigner; import software.amazon.awssdk.services.s3.model.GetObjectRequest; import software.amazon.awssdk.services.s3.model.PutObjectRequest; import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest; import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest; @Service public class StorageService { private static final Pattern SAFE_FILENAME = Pattern.compile("[^a-zA-Z0-9._-]"); private final StorageProperties properties; private final ObjectProvider<S3Presigner> presignerProvider; public StorageService(StorageProperties properties, ObjectProvider<S3Presigner> presignerProvider) { this.properties = properties; this.presignerProvider = presignerProvider; } public PresignedUpload createUploadUrl(UUID caseId, String originalName, String mimeType) { S3Presigner presigner = requirePresigner(); String storageKey = buildStorageKey(caseId, originalName); PutObjectRequest putObjectRequest = PutObjectRequest.builder() .bucket(properties.bucket()) .key(storageKey) .contentType(mimeType) .build(); Duration duration = Duration.ofMinutes(properties.uploadUrlMinutes()); PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder() .signatureDuration(duration) .putObjectRequest(putObjectRequest) .build(); var presigned = presigner.presignPutObject(presignRequest); return new PresignedUpload( presigned.url().toString(), storageKey, OffsetDateTime.now().plus(duration), "PUT", mimeType); } public String createDownloadUrl(String storageKey) { S3Presigner presigner = requirePresigner(); GetObjectRequest getObjectRequest = GetObjectRequest.builder() .bucket(properties.bucket()) .key(storageKey) .build(); GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder() .signatureDuration(Duration.ofMinutes(properties.downloadUrlMinutes())) .getObjectRequest(getObjectRequest) .build(); return presigner.presignGetObject(presignRequest).url().toString(); } private S3Presigner requirePresigner() { if (!properties.enabled()) { throw new StorageUnavailableException("Storage externo desabilitado"); } S3Presigner presigner = presignerProvider.getIfAvailable(); if (presigner == null) { throw new StorageUnavailableException("Storage externo nao inicializado"); } return presigner; } private String buildStorageKey(UUID caseId, String originalName) { String safeName = sanitizeFilename(originalName); return "cases/" + caseId + "/" + UUID.randomUUID() + "-" + safeName; } private String sanitizeFilename(String filename) { String fallback = "arquivo.bin"; if (filename == null || filename.isBlank()) { return fallback; } String sanitized = SAFE_FILENAME.matcher(filename.trim()).replaceAll("_"); return sanitized.isBlank() ? fallback : sanitized; } } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\storage\StorageService.java
+
+
+Ran @' package com.painel.api.document; import jakarta.validation.constraints.NotBlank; import jakarta.validation.constraints.NotNull; import jakarta.validation.constraints.Positive; import jakarta.validation.constraints.Size; public record DocumentPresignRequest( @NotBlank @Size(max = 255) String originalName, @NotBlank @Size(max = 120) String mimeType, @NotNull @Positive Long sizeBytes ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentPresignRequest.java
+
+
+Ran @' package com.painel.api.document; import java.time.OffsetDateTime; public record DocumentPresignResponse( String uploadUrl, String storageKey, String method, String contentType, OffsetDateTime expiresAt ) { } '@ | Set-Content -Encoding UTF8 backend\src\main\java\com\painel\api\document\DocumentPresignResponse.java
+
+
+Vou ajustar os serviços de documento para usar storage real: presign de upload e confirm para persistir metadado, mantendo compatibilidade do endpoint existente.
+
+Edited file
+PropertiesConfig.java
++8
+-1
+
+import com.painel.api.document.DocumentProperties;
+import com.painel.api.storage.StorageProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+@Configuration
+@EnableConfigurationProperties({SecurityProperties.class, CorsProperties.class, PortalProperties.class, DocumentProperties.class})
+@EnableConfigurationProperties({
+        SecurityProperties.class,
+        CorsProperties.class,
+        PortalProperties.class,
+        DocumentProperties.class,
+        StorageProperties.class
+})
+public class PropertiesConfig {
+Edited file
+application.yml
++10
+-0
+
+    download-token-minutes: ${APP_DOCUMENT_DOWNLOAD_TOKEN_MINUTES:5}
+  storage:
+    enabled: ${APP_STORAGE_ENABLED:true}
+    endpoint: ${APP_STORAGE_ENDPOINT:http://localhost:9000}
+    region: ${APP_STORAGE_REGION:us-east-1}
+    bucket: ${APP_STORAGE_BUCKET:painel-docs}
+    access-key: ${APP_STORAGE_ACCESS_KEY:minioadmin}
+    secret-key: ${APP_STORAGE_SECRET_KEY:minioadmin123}
+    path-style: ${APP_STORAGE_PATH_STYLE:true}
+    upload-url-minutes: ${APP_STORAGE_UPLOAD_URL_MINUTES:10}
+    download-url-minutes: ${APP_STORAGE_DOWNLOAD_URL_MINUTES:5}
+  security:
+Edited file
+DocumentDownloadResolveResponse.java
++2
+-1
+
+        String storageKey,
+        String downloadUrl,
+        OffsetDateTime issuedAt
+) {
+}
+}
+Edited file
+DocumentDownloadService.java
++6
+-1
+
+import com.painel.api.portal.PortalTokenService;
+import com.painel.api.storage.StorageService;
+import com.painel.api.user.OfficeUser;
+    private final AuditService auditService;
+    private final StorageService storageService;
+
+            DocumentProperties documentProperties,
+            AuditService auditService) {
+            AuditService auditService,
+            StorageService storageService) {
+        this.documentRepository = documentRepository;
+        this.auditService = auditService;
+        this.storageService = storageService;
+    }
+                document.getStorageKey(),
+                storageService.createDownloadUrl(document.getStorageKey()),
+                downloadToken.getCreatedAt());
+Vou editar o DocumentService e DocumentController para incluir presign e confirm, e usar o storage assinado em produção.
+
+Edited file
+DocumentService.java
++33
+-1
+
+import com.painel.api.common.NotFoundException;
+import com.painel.api.storage.StorageService;
+import com.painel.api.user.OfficeUser;
+    private final AuditService auditService;
+    private final StorageService storageService;
+
+            AuthorizationService authorizationService,
+            AuditService auditService) {
+            AuditService auditService,
+            StorageService storageService) {
+        this.documentRepository = documentRepository;
+        this.auditService = auditService;
+        this.storageService = storageService;
+    }
+
+    @Transactional
+    public DocumentPresignResponse presignUpload(UUID caseId, DocumentPresignRequest request, OfficeUser actor) {
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        caseFileRepository.findById(caseId)
+                .orElseThrow(() -> new NotFoundException("Caso nao encontrado"));
+
+        var upload = storageService.createUploadUrl(caseId, request.originalName(), request.mimeType());
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "DOCUMENT",
+                caseId,
+                "UPLOAD_PRESIGN",
+                Map.of("storageKey", upload.storageKey(), "contentType", request.mimeType()));
+
+        return new DocumentPresignResponse(
+                upload.uploadUrl(),
+                upload.storageKey(),
+                upload.method(),
+                upload.contentType(),
+                upload.expiresAt());
+    }
+
+    @Transactional
+    public DocumentResponse confirm(UUID caseId, DocumentRequest request, OfficeUser actor) {
+        return create(caseId, request, actor);
+    }
+
+    private DocumentResponse toResponse(Document document) {
+Edited file
+DocumentController.java
++18
+-0
+
+
+    @PostMapping("/presign")
+    @ResponseStatus(HttpStatus.OK)
+    public DocumentPresignResponse presign(
+            @PathVariable UUID caseId,
+            @Valid @RequestBody DocumentPresignRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return documentService.presignUpload(caseId, request, actor);
+    }
+
+    @PostMapping("/confirm")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DocumentResponse confirm(
+            @PathVariable UUID caseId,
+            @Valid @RequestBody DocumentRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return documentService.confirm(caseId, request, actor);
+    }
+
+    @PostMapping("/{documentId}/download-link")
+Edited file
+docker-compose.yml
++28
+-1
+
+
+  minio:
+    image: minio/minio:latest
+    container_name: painel-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: painel-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+      mc mb -p local/painel-docs || true;
+      exit 0;
+      "
+
+volumes:
+  postgres_data:
+  postgres_data:
+  minio_data:
+Edited file
+README.md
++12
+-0
+
+- `GET/POST /cases/{id}/documents`
+- `POST /cases/{id}/documents/presign`
+- `POST /cases/{id}/documents/confirm`
+- `POST /cases/{id}/documents/{documentId}/download-link`
+- `APP_PORTAL_CLIENT_SESSION_MINUTES`
+- `APP_STORAGE_ENABLED`
+- `APP_STORAGE_ENDPOINT`
+- `APP_STORAGE_REGION`
+- `APP_STORAGE_BUCKET`
+- `APP_STORAGE_ACCESS_KEY`
+- `APP_STORAGE_SECRET_KEY`
+- `APP_STORAGE_PATH_STYLE`
+- `APP_STORAGE_UPLOAD_URL_MINUTES`
+- `APP_STORAGE_DOWNLOAD_URL_MINUTES`
+
+  - uso unico (segunda tentativa falha)
+  - resolucao gera URL assinada S3/MinIO para download real
+Alterações de código concluídas. Vou rodar normalização de encoding, compilar e validar os endpoints de presign/confirm + download assinado.
+
+Ran $enc = New-Object System.Text.UTF8Encoding($false); Get-ChildItem -Path backend -Recurse -File | Where-Object { $_.Extension -in '.java','.yml','.yaml','.sql','.xml','.md' } | ForEach-Object { $c=[System.IO.File]::ReadAllText($_.FullName); [System.IO.File]::WriteAllText($_.FullName,$c,$enc) }
+
+
+Ran mvn -q -DskipTests compile for 3s
+
+
+A falha foi de dependência Maven: s3-presigner não existe como artefato separado na versão usada. Vou corrigir o pom para usar só software.amazon.awssdk:s3 e recompilar.
+
+Edited file
+pom.xml
++0
+-5
+
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3-presigner</artifactId>
+      <version>2.30.36</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+Ran mvn -q -DskipTests compile for 7s
+
+
+Edited file
+StorageConfig.java
++1
+-1
+
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+
+Edited file
+StorageService.java
++1
+-1
+
+import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.s3.S3Presigner;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+Ran mvn -q -DskipTests compile for 8s
+
+
+Build passou. Vou reiniciar a API e validar os endpoints novos (presign, confirm e documents/download com URL assinada no retorno).
+
+Ran Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; $out='api.out.log'; $err='api.err.log'; $p = Start-Process -FilePath mvn.cmd -ArgumentList 'spring-boot:run','-Dspring-boot.run.profiles=dev' -WorkingDirectory '.' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru; Start-Sleep -Seconds 18; Write-Output ("PID=" + $p.Id); (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content for 27s
+
+
+Ran Get-Content api.out.log -Tail 30; try { (Invoke-WebRequest -UseBasicParsing http://localhost:8080/health -TimeoutSec 6).Content } catch { $_.Exception.Message }
+
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $caseId = $case.id; $presign = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/documents/presign") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ originalName='novo-upload.pdf'; mimeType='application/pdf'; sizeBytes=2048 } | ConvertTo-Json); $confirm = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/documents/confirm") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ visibility='CLIENT_VISIBLE'; originalName='novo-upload.pdf'; mimeType='application/pdf'; sizeBytes=2048; storageKey=$presign.storageKey; checksum='sha256-test' } | ConvertTo-Json); $downloadLink = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/documents/$($confirm.id)/download-link") -Headers $staffHeaders; $token = ([System.Uri]("http://localhost:8080" + $downloadLink.url)).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $resolved = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/documents/download?token=" + $token); [PSCustomObject]@{ caseId = $caseId; presignHasUrl = ([string]::IsNullOrWhiteSpace($presign.uploadUrl) -eq $false); presignMethod = $presign.method; confirmedDocumentId = $confirm.id; resolvedDocumentId = $resolved.documentId; hasDownloadUrl = ([string]::IsNullOrWhiteSpace($resolved.downloadUrl) -eq $false); downloadUrlLooksSigned = ($resolved.downloadUrl -like '*X-Amz-Signature*') } | ConvertTo-Json -Compress for 1s
+
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $caseId = $case.id; $doc = (Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/documents") -Headers $staffHeaders | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1); $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $clientSession = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $clientSession.sessionToken }; $clientDl = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$($doc.id)/download-link") -Headers $clientHeaders; $token = ([System.Uri]("http://localhost:8080" + $clientDl.url)).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $resolved = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/documents/download?token=" + $token); [PSCustomObject]@{ docId=$doc.id; resolvedDocId=$resolved.documentId; hasSignedUrl=($resolved.downloadUrl -like '*X-Amz-Signature*') } | ConvertTo-Json -Compress for 1s
+
+
+Ran $ErrorActionPreference='Continue'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $caseId = $case.id; $doc = (Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$caseId/documents") -Headers $staffHeaders | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1); $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$caseId/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; try {$clientSession = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); 'session ok'} catch { $resp=$_.Exception.Response; $r=New-Object IO.StreamReader($resp.GetResponseStream()); 'session err: ' + $r.ReadToEnd() } $clientHeaders = @{ 'X-Client-Session' = $clientSession.sessionToken }; try { Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$($doc.id)/download-link") -Headers $clientHeaders | ConvertTo-Json -Compress } catch { $resp=$_.Exception.Response; if($resp){$r=New-Object IO.StreamReader($resp.GetResponseStream()); $r.ReadToEnd()} else { $_.Exception.Message } }
+
+
+Estou revalidando o endpoint de download-link do cliente com uma chamada mais direta para confirmar que o 403 anterior foi só condição transitória de sessão.
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $doc = (Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/documents") -Headers $staffHeaders | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1); $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $session = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $session.sessionToken }; $link = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$($doc.id)/download-link") -Headers $clientHeaders; [PSCustomObject]@{docId=$doc.id; hasLink=([string]::IsNullOrWhiteSpace($link.url)-eq $false)} | ConvertTo-Json -Compress for 1s
+
+
+Identifiquei que o endpoint do cliente ainda está retornando 403; vou inspecionar o log para localizar a regra exata que está bloqueando e corrigir.
+
+Ran Select-String -Path backend\api.out.log -Pattern 'ForbiddenException|forbidden|403|Documento|client-portal/documents' -Context 1,3
+
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $docs = @(Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/documents") -Headers $staffHeaders); $doc = $docs | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1; $docId = [string]$doc.id; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $session = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $session.sessionToken }; $link = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$docId/download-link") -Headers $clientHeaders; [PSCustomObject]@{docId=$docId; hasLink=([string]::IsNullOrWhiteSpace($link.url)-eq $false)} | ConvertTo-Json -Compress for 1s
+
+
+Ran Get-Content backend\api.out.log -Tail 60
+
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $docs = @(Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/documents") -Headers $staffHeaders); $docId = ($docs | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1 | ForEach-Object { $_.id }); $docId = [string]$docId; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $session = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $session.sessionToken }; $link = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$docId/download-link") -Headers $clientHeaders; [PSCustomObject]@{docId=$docId; link=$link.url} | ConvertTo-Json -Compress for 1s
+
+
+Vou capturar o corpo do erro dessa chamada do cliente para verificar se é bloqueio de regra de visibilidade/sessão e fechar isso.
+
+Ran $ErrorActionPreference='Continue'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $docs = @(Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/documents") -Headers $staffHeaders); $docId = [string](($docs | Where-Object { $_.visibility -eq 'CLIENT_VISIBLE' } | Select-Object -First 1).id); $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $session = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $session.sessionToken }; try { Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$docId/download-link") -Headers $clientHeaders | ConvertTo-Json -Compress } catch { $resp=$_.Exception.Response; if($resp){$r=New-Object IO.StreamReader($resp.GetResponseStream()); $r.ReadToEnd()} else { $_.Exception.Message } }
+
+
+Ran Select-String -Path backend\api.out.log -Pattern 'client-portal/documents/.*/download-link|Completed 20|Completed 40|DocumentDownloadLinkResponse|Documento indisponivel' -Context 0,2 for 2s
+
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $docs = @(Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/documents") -Headers $staffHeaders); $docId = [string]$docs[0].id; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $session = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $session.sessionToken }; $link = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/client-portal/documents/$docId/download-link") -Headers $clientHeaders; [PSCustomObject]@{docId=$docId; hasLink=([string]::IsNullOrWhiteSpace($link.url)-eq $false)} | ConvertTo-Json -Compress
+
+
+Vou só confirmar a visibilidade do documento usado no teste (o 403 pode estar correto se ele for INTERNAL_ONLY).
+
+Ran $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders=@{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case=(Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; @(Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/cases/$($case.id)/documents") -Headers $staffHeaders) | Select-Object id,visibility,originalName | ConvertTo-Json -Compress
+
+
+Integração principal está pronta. Vou só subir o MinIO no docker-compose para validar que a infra local também está preparada.
+
+Ran docker compose up -d minio minio-init for 7s
+
+
+MinIO também está no ar. Vou fazer um teste final direto no endpoint de download-link do cliente com um documentId explícito para confirmar o fluxo completo.
+
+Ran $ErrorActionPreference='Stop'; $staffLogin = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType 'application/json' -Body (@{ email='admin@painel.local'; password='Admin@123' } | ConvertTo-Json); $staffHeaders = @{ Authorization = "Bearer $($staffLogin.accessToken)" }; $case = (Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/cases?search=Etapa2' -Headers $staffHeaders)[0]; $activate = Invoke-RestMethod -Method Post -Uri ("http://localhost:8080/cases/$($case.id)/portal-link/activate") -Headers $staffHeaders -ContentType 'application/json' -Body (@{ ttlMinutes=30 } | ConvertTo-Json); $portalToken = ([System.Uri]$activate.url).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $session = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/session' -ContentType 'application/json' -Body (@{ token=$portalToken; cpfLast3='123' } | ConvertTo-Json); $clientHeaders = @{ 'X-Client-Session' = $session.sessionToken }; $link = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/client-portal/documents/1fa07edc-206f-4cfc-9ecd-b294f50b6e9b/download-link' -Headers $clientHeaders; $token = ([System.Uri]("http://localhost:8080" + $link.url)).Query.TrimStart('?').Split('&') | Where-Object { $_ -like 'token=*' } | ForEach-Object { $_.Substring(6) } | Select-Object -First 1; $resolved = Invoke-RestMethod -Method Get -Uri ("http://localhost:8080/documents/download?token=" + $token); [PSCustomObject]@{hasClientLink=([string]::IsNullOrWhiteSpace($link.url)-eq $false); hasSignedUrl=($resolved.downloadUrl -like '*X-Amz-Signature*')} | ConvertTo-Json -Compress
+
+
+Worked for 7m 43s
+Integração com storage real foi implementada e validada.
+
+O que entrou
+
+S3/MinIO via AWS SDK no backend:
+
+StorageProperties.java
+StorageConfig.java
+StorageService.java
+Fluxo upload real com presigned URL:
+
+POST /cases/{caseId}/documents/presign
+POST /cases/{caseId}/documents/confirm
+no controller: DocumentController.java
+Download seguro agora resolve URL assinada real:
+
+POST /cases/{caseId}/documents/{documentId}/download-link (staff)
+POST /client-portal/documents/{documentId}/download-link (cliente)
+GET /documents/download?token=... (uso único)
+serviços/controllers:
+DocumentDownloadService.java
+DocumentDownloadController.java
+ClientPortalReadController.java
+Banco:
+
+migração V7 aplicada: V7__create_document_download_tokens.sql
+Infra local:
+
+docker-compose agora inclui minio + minio-init (bucket painel-docs)
+arquivo: docker-compose.yml
+Configs novas em application.yml:
+
+APP_STORAGE_ENABLED
+APP_STORAGE_ENDPOINT
+APP_STORAGE_BUCKET
+APP_STORAGE_ACCESS_KEY
+APP_STORAGE_SECRET_KEY
+etc.
+Validação feita
+
+mvn -DskipTests compile OK
+API health OK
+Flyway V7 OK
+Testes reais OK:
+presign upload retorna URL assinada (PUT)
+confirm grava metadado
+download resolve retorna downloadUrl assinado (com X-Amz-Signature)
+token de download continua uso único
+fluxo cliente também validado com download-link + downloadUrl assinado
+Se quiser, próxima etapa natural é conectar o frontend nesses endpoints (presign -> upload direto -> confirm).
+
+
+11 files changed
++124
+-7
+Undo
+
+README.md
+docker-compose.yml
+pom.xml
+PropertiesConfig.java
+DocumentController.java
+DocumentDownloadResolveResponse.java
+DocumentDownloadService.java
+DocumentService.java
+StorageConfig.java
+StorageService.java
+application.yml

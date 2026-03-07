@@ -1,0 +1,9 @@
+spring:
+  jpa:
+    show-sql: true
+
+app:
+  seed:
+    admin-email: admin@painel.local
+    admin-password: Admin@123
+    admin-name: Administrador
