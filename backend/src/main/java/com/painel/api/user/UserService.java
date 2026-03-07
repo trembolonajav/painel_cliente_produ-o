@@ -32,7 +32,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<UserResponse> list(OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR);
         return officeUserRepository.findAll().stream()
                 .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
                 .map(this::toResponse)
@@ -41,7 +41,7 @@ public class UserService {
 
     @Transactional
     public UserResponse create(UserRequest request, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR);
         String normalizedEmail = request.email().trim().toLowerCase();
         if (officeUserRepository.existsByEmail(normalizedEmail)) {
             throw new IllegalArgumentException("Ja existe usuario com este email");
@@ -70,7 +70,7 @@ public class UserService {
 
     @Transactional
     public UserResponse update(UUID id, UserRequest request, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR);
         OfficeUser user = officeUserRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Usuario nao encontrado"));
 
@@ -103,17 +103,17 @@ public class UserService {
     }
 
     private void enforceAtLeastOneActiveAdmin(OfficeUser userBeingSaved) {
-        if (userBeingSaved.getRole() == OfficeRole.ADMIN && userBeingSaved.isActive()) {
+        if (userBeingSaved.getRole() == OfficeRole.ADMINISTRADOR && userBeingSaved.isActive()) {
             return;
         }
 
         long activeAdmins = officeUserRepository.findAll().stream()
                 .filter(OfficeUser::isActive)
-                .filter(user -> user.getRole() == OfficeRole.ADMIN)
+                .filter(user -> user.getRole() == OfficeRole.ADMINISTRADOR)
                 .filter(user -> !user.getId().equals(userBeingSaved.getId()))
                 .count();
         if (activeAdmins == 0) {
-            throw new IllegalArgumentException("Deve existir ao menos um usuario ADMIN ativo");
+            throw new IllegalArgumentException("Deve existir ao menos um usuario ADMINISTRADOR ativo");
         }
     }
 

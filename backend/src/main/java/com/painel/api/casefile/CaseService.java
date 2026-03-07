@@ -43,7 +43,7 @@ public class CaseService {
 
     @Transactional(readOnly = true)
     public List<CaseResponse> list(String search, CaseStatus status, UUID clientId, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR, OfficeRole.ESTAGIARIO);
         String normalizedSearch = trimToNull(search);
         boolean hasSearch = normalizedSearch != null;
         List<CaseFile> cases;
@@ -61,14 +61,14 @@ public class CaseService {
 
     @Transactional(readOnly = true)
     public CaseResponse getById(UUID caseId, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR, OfficeRole.ESTAGIARIO);
         authorizationService.requireCaseReadAccess(actor, caseId);
         return toResponse(findCase(caseId));
     }
 
     @Transactional
     public CaseResponse create(CaseRequest request, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR);
         Client client = clientRepository.findById(request.clientId())
                 .orElseThrow(() -> new NotFoundException("Cliente nao encontrado"));
 
@@ -110,7 +110,9 @@ public class CaseService {
             OfficeUser responsible = resolveResponsibleUser(request.responsibleUserId(), actor);
             upsertMember(saved, responsible, CaseMemberPermission.OWNER);
             if (!responsible.getId().equals(actor.getId())) {
-                upsertMember(saved, actor, CaseMemberPermission.EDITOR);
+                OfficeUser managedActor = officeUserRepository.findById(actor.getId())
+                        .orElseThrow(() -> new NotFoundException("Usuario ator nao encontrado"));
+                upsertMember(saved, managedActor, CaseMemberPermission.EDITOR);
             }
         }
         auditService.log(

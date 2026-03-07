@@ -1,4 +1,4 @@
-export type UserRole = "owner" | "operator" | "reader";
+export type UserRole = "administrador" | "gestor" | "estagiario";
 
 export interface User {
   id: string;
@@ -212,7 +212,7 @@ export interface PatrimonyStructureData {
 
 // Permissions matrix
 export const PERMISSIONS: Record<UserRole, Record<string, boolean>> = {
-  owner: {
+  administrador: {
     dashboard: true,
     clients_read: true, clients_write: true,
     cases_read: true, cases_write: true,
@@ -220,7 +220,7 @@ export const PERMISSIONS: Record<UserRole, Record<string, boolean>> = {
     portal_manage: true, audit_read: true,
     users_manage: true, settings_manage: true,
   },
-  operator: {
+  gestor: {
     dashboard: true,
     clients_read: true, clients_write: true,
     cases_read: true, cases_write: true,
@@ -228,7 +228,7 @@ export const PERMISSIONS: Record<UserRole, Record<string, boolean>> = {
     portal_manage: true, audit_read: false,
     users_manage: false, settings_manage: false,
   },
-  reader: {
+  estagiario: {
     dashboard: true,
     clients_read: true, clients_write: false,
     cases_read: true, cases_write: false,

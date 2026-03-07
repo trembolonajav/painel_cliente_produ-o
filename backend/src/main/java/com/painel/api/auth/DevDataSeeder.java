@@ -33,7 +33,7 @@ public class DevDataSeeder implements CommandLineRunner {
         admin.setName(seedProperties.adminName());
         admin.setEmail(seedProperties.adminEmail());
         admin.setPasswordHash(passwordEncoder.encode(seedProperties.adminPassword()));
-        admin.setRole(OfficeRole.ADMIN);
+        admin.setRole(OfficeRole.ADMINISTRADOR);
         admin.setActive(true);
         officeUserRepository.save(admin);
     }

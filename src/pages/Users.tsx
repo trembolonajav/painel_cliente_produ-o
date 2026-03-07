@@ -11,9 +11,9 @@ import type { OfficeSettings, User, UserRole } from "@/types";
 import abrLogo from "@/assets/abr-logo.png";
 
 const roleLabel: Record<UserRole, string> = {
-  owner: "Owner",
-  operator: "Operador",
-  reader: "Leitura",
+  administrador: "Administrador",
+  gestor: "Gestor",
+  estagiario: "Estagiário",
 };
 
 const Users = () => {
@@ -30,7 +30,7 @@ const Users = () => {
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPassword, setFormPassword] = useState("");
-  const [formRole, setFormRole] = useState<UserRole>("operator");
+  const [formRole, setFormRole] = useState<UserRole>("gestor");
   const [formActive, setFormActive] = useState(true);
 
   const loadUsers = async () => {
@@ -65,7 +65,7 @@ const Users = () => {
     setFormName("");
     setFormEmail("");
     setFormPassword("");
-    setFormRole("operator");
+    setFormRole("gestor");
     setFormActive(true);
   };
 
@@ -188,7 +188,7 @@ const Users = () => {
         <header className="border-b px-6 py-4 flex items-center justify-between gap-4 bg-card">
           <div>
             <h1 className="text-xl font-heading font-bold text-foreground">Usuários e Permissões</h1>
-            <p className="text-sm text-muted-foreground">Gerencie acessos Owner, Operador e Leitura</p>
+            <p className="text-sm text-muted-foreground">Gerencie acessos Administrador, Gestor e Estagiário</p>
           </div>
           <button onClick={openNewForm} className="btn-gold px-4 py-2 text-sm flex items-center gap-2" disabled={loading}>
             <Plus className="w-4 h-4" /> Novo Usuário
@@ -225,9 +225,9 @@ const Users = () => {
                 <div>
                   <label className="text-sm font-medium text-foreground mb-1.5 block">Perfil</label>
                   <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserRole)} className="input-field text-sm">
-                    <option value="owner">Owner</option>
-                    <option value="operator">Operador</option>
-                    <option value="reader">Leitura</option>
+                    <option value="administrador">Administrador</option>
+                    <option value="gestor">Gestor</option>
+                    <option value="estagiario">Estagiário</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-2">

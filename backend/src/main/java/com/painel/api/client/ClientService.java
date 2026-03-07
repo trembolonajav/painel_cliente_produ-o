@@ -27,7 +27,7 @@ public class ClientService {
 
     @Transactional(readOnly = true)
     public List<ClientResponse> list(String search, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR, OfficeRole.ESTAGIARIO);
         String normalizedSearch = normalizeFilter(search);
         List<Client> clients = normalizedSearch == null
                 ? clientRepository.findAllByOrderByUpdatedAtDesc()
@@ -37,13 +37,13 @@ public class ClientService {
 
     @Transactional(readOnly = true)
     public ClientResponse getById(UUID id, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT, OfficeRole.VIEWER);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR, OfficeRole.ESTAGIARIO);
         return toResponse(findClient(id));
     }
 
     @Transactional
     public ClientResponse create(ClientRequest request, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR);
         Client client = new Client();
         apply(client, request);
         Client saved = clientRepository.save(client);
@@ -53,7 +53,7 @@ public class ClientService {
 
     @Transactional
     public ClientResponse update(UUID id, ClientRequest request, OfficeUser actor) {
-        authorizationService.requireAnyRole(actor, OfficeRole.ADMIN, OfficeRole.LAWYER, OfficeRole.ASSISTANT);
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR);
         Client client = findClient(id);
         apply(client, request);
         Client saved = clientRepository.save(client);

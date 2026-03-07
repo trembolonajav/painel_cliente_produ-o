@@ -18,7 +18,7 @@ public class AuthorizationService {
     }
 
     public boolean isAdmin(OfficeUser user) {
-        return user.getRole() == OfficeRole.ADMIN;
+        return user.getRole() == OfficeRole.ADMINISTRADOR;
     }
 
     public void requireAnyRole(OfficeUser user, OfficeRole... roles) {
@@ -59,7 +59,7 @@ public class AuthorizationService {
                 .map(member -> member.getPermission())
                 .orElseThrow(() -> new ForbiddenException("Sem acesso a este caso"));
         if (permission != CaseMemberPermission.OWNER) {
-            throw new ForbiddenException("Apenas owner pode gerenciar membros");
+            throw new ForbiddenException("Apenas proprietario do caso pode gerenciar membros");
         }
     }
 }

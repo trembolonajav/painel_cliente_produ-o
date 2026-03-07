@@ -1,7 +1,7 @@
 import type { CaseData, CasePriority, CaseStatus, Client, User, UserRole } from "@/types";
 import { apiRequest, getApiBaseUrl } from "./apiClient";
 
-type BackendRole = "ADMIN" | "LAWYER" | "ASSISTANT" | "VIEWER";
+type BackendRole = "ADMINISTRADOR" | "GESTOR" | "ESTAGIARIO";
 type BackendCaseStatus = "OPEN" | "IN_PROGRESS" | "WAITING_CLIENT" | "CLOSED";
 type BackendCasePriority = "LOW" | "MEDIUM" | "HIGH";
 
@@ -201,15 +201,15 @@ type CaseTaskResponse = {
 };
 
 const toFrontendRole = (role: BackendRole): UserRole => {
-  if (role === "ADMIN") return "owner";
-  if (role === "VIEWER") return "reader";
-  return "operator";
+  if (role === "ADMINISTRADOR") return "administrador";
+  if (role === "ESTAGIARIO") return "estagiario";
+  return "gestor";
 };
 
 const toBackendRole = (role: UserRole): BackendRole => {
-  if (role === "owner") return "ADMIN";
-  if (role === "reader") return "VIEWER";
-  return "ASSISTANT";
+  if (role === "administrador") return "ADMINISTRADOR";
+  if (role === "estagiario") return "ESTAGIARIO";
+  return "GESTOR";
 };
 
 const toFrontendCaseStatus = (status: BackendCaseStatus): CaseStatus => {
