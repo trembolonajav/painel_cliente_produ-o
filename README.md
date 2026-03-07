@@ -71,3 +71,12 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Status atual (integracao completa)
+
+- Backend Spring Boot integrado ao frontend.
+- Banco PostgreSQL via Docker Compose (`backend/docker-compose.yml`).
+- Fluxos de autenticacao e API conectados.
+- Portal do cliente operando com API real (sem mock como fonte de verdade).
+- Estrutura patrimonial do portal com acesso real ao documento original (download/abertura).
+- Base pronta para operacao de producao.
