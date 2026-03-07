@@ -62,6 +62,24 @@ public class CaseUpdateService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public void delete(UUID caseId, UUID updateId, OfficeUser actor) {
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        CaseUpdate update = caseUpdateRepository.findById(updateId)
+                .orElseThrow(() -> new NotFoundException("Atualizacao nao encontrada"));
+        if (!update.getCaseFile().getId().equals(caseId)) {
+            throw new NotFoundException("Atualizacao nao pertence ao caso");
+        }
+        caseUpdateRepository.delete(update);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_UPDATE",
+                updateId,
+                "DELETE",
+                Map.of("caseId", caseId.toString()));
+    }
+
     private CaseUpdateResponse toResponse(CaseUpdate update) {
         return new CaseUpdateResponse(
                 update.getId(),

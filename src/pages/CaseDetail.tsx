@@ -1,13 +1,24 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink,
   FileText, Copy, Bell, RefreshCw, Download, Eye, Plus,
-  CircleDot, Circle, Check, User, Calendar
+  CircleDot, Circle, Check, User, Calendar, Trash2
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import type { CaseWithComputed, CaseStage } from "@/types";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import PatrimonyBuilder from "@/components/patrimony/PatrimonyBuilder";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const statusConfig: Record<CaseWithComputed["status"], { label: string; class: string; icon: typeof Clock }> = {
   em_andamento: { label: "Em andamento", class: "status-progress", icon: Clock },
@@ -30,6 +41,13 @@ const tabs = [
   { key: "estruturacao", label: "Estruturacao" },
   { key: "portal", label: "Portal do Cliente" },
 ];
+
+type PendingDelete = {
+  kind: "stage" | "task" | "document" | "update";
+  id: string;
+  title: string;
+  message: string;
+};
 
 const CaseDetail = () => {
   const navigate = useNavigate();
@@ -64,12 +82,26 @@ const CaseDetail = () => {
     handleAddUpdate,
     handleAddDocument,
     handleResolvePendingDocument,
+    handleDeleteDocument,
+    handleDeleteStage,
+    handleDeleteTask,
+    handleDeleteUpdate,
     handleDownloadDocument,
     handleGenerateLink,
     handleRevokeLink,
     handleCopyLink,
     handleOpenLink,
   } = useCaseDetail({ caseId: id, user, can });
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "stage") await handleDeleteStage(pendingDelete.id);
+    if (pendingDelete.kind === "task") await handleDeleteTask(pendingDelete.id);
+    if (pendingDelete.kind === "document") await handleDeleteDocument(pendingDelete.id);
+    if (pendingDelete.kind === "update") await handleDeleteUpdate(pendingDelete.id);
+    setPendingDelete(null);
+  };
 
   if (loading) {
     return (
@@ -205,7 +237,25 @@ const CaseDetail = () => {
                         <h3 className={`font-medium text-sm ${stage.status === "em_andamento" ? "text-gold" : "text-foreground"}`}>
                           {stage.name}
                         </h3>
-                        {stage.date && <span className="text-xs text-muted-foreground">{stage.date}</span>}
+                        <div className="flex items-center gap-2">
+                          {stage.date && <span className="text-xs text-muted-foreground">{stage.date}</span>}
+                          {can("stages_write") && (
+                            <button
+                              onClick={() =>
+                                setPendingDelete({
+                                  kind: "stage",
+                                  id: stage.id,
+                                  title: "Excluir etapa",
+                                  message: "Tem certeza que deseja excluir esta etapa? Essa ação é permanente e não poderá ser desfeita.",
+                                })
+                              }
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Excluir etapa"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{stage.description}</p>
                     </div>
@@ -289,6 +339,22 @@ const CaseDetail = () => {
                     {item.label}
                   </span>
                   {item.responsible && <span className="text-xs text-muted-foreground hidden sm:inline">{item.responsible}</span>}
+                  {can("tasks_write") && (
+                    <button
+                      onClick={() =>
+                        setPendingDelete({
+                          kind: "task",
+                          id: item.id,
+                          title: "Excluir tarefa",
+                          message: "Tem certeza que deseja excluir esta tarefa? Essa ação é permanente e não poderá ser desfeita.",
+                        })
+                      }
+                      className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                      title="Excluir tarefa"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -370,18 +436,54 @@ const CaseDetail = () => {
                     <div className="flex items-center gap-2">
                       <span className="status-badge status-waiting">Pendente</span>
                       {can("docs_write") && (
-                        <button
-                          onClick={() => handleResolvePendingDocument(doc.id)}
-                          className="px-2 py-1 text-xs border rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          Recebido
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleResolvePendingDocument(doc.id)}
+                            className="px-2 py-1 text-xs border rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            Recebido
+                          </button>
+                          <button
+                            onClick={() =>
+                              setPendingDelete({
+                                kind: "document",
+                                id: doc.id,
+                                title: "Excluir documento",
+                                message:
+                                  "Tem certeza que deseja excluir este documento? Essa ação é permanente e não poderá ser desfeita. O registro será removido e o arquivo físico pode permanecer no storage.",
+                              })
+                            }
+                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            title="Excluir documento"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                     </div>
                   ) : (
-                    <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                      <Download className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                        <Download className="w-4 h-4" />
+                      </button>
+                      {can("docs_write") && (
+                        <button
+                          onClick={() =>
+                            setPendingDelete({
+                              kind: "document",
+                              id: doc.id,
+                              title: "Excluir documento",
+                              message:
+                                "Tem certeza que deseja excluir este documento? Essa ação é permanente e não poderá ser desfeita. O registro será removido e o arquivo físico pode permanecer no storage.",
+                            })
+                          }
+                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                          title="Excluir documento"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}
@@ -408,7 +510,7 @@ const CaseDetail = () => {
               {caseData.updates.map((u) => (
                 <div key={u.id} className="flex gap-3">
                   <div className="w-2 h-2 rounded-full bg-gold mt-2 shrink-0" />
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm text-foreground">{u.text}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                       <span>{u.date}</span>
@@ -416,6 +518,22 @@ const CaseDetail = () => {
                       {u.internal && <span className="text-destructive">(interno)</span>}
                     </div>
                   </div>
+                  {can("cases_write") && (
+                    <button
+                      onClick={() =>
+                        setPendingDelete({
+                          kind: "update",
+                          id: u.id,
+                          title: "Excluir atualizacao",
+                          message: "Tem certeza que deseja excluir esta atualizacao? Essa acao e permanente e nao podera ser desfeita.",
+                        })
+                      }
+                      className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                      title="Excluir atualizacao"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -492,6 +610,27 @@ const CaseDetail = () => {
           </div>
         )}
       </div>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pendingDelete?.title ?? "Confirmar exclusao"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.message ?? "Tem certeza que deseja excluir este registro?"}
+              <br />
+              Essa acao e permanente e nao podera ser desfeita.
+              <br />
+              Dependendo do item, dados relacionados tambem poderao ser removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

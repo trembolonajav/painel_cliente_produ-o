@@ -133,6 +133,38 @@ public class CaseWorkflowService {
         return toTaskResponse(saved);
     }
 
+    @Transactional
+    public void deleteStage(UUID stageId, OfficeUser actor) {
+        CaseStage stage = caseStageRepository.findById(stageId)
+                .orElseThrow(() -> new NotFoundException("Etapa nao encontrada"));
+        UUID caseId = stage.getCaseFile().getId();
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        caseStageRepository.delete(stage);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_STAGE",
+                stageId,
+                "DELETE",
+                Map.of("caseId", caseId.toString()));
+    }
+
+    @Transactional
+    public void deleteTask(UUID taskId, OfficeUser actor) {
+        CaseTask task = caseTaskRepository.findById(taskId)
+                .orElseThrow(() -> new NotFoundException("Tarefa nao encontrada"));
+        UUID caseId = task.getCaseFile().getId();
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        caseTaskRepository.delete(task);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_TASK",
+                taskId,
+                "DELETE",
+                Map.of("caseId", caseId.toString()));
+    }
+
     private CaseFile findCase(UUID caseId) {
         return caseFileRepository.findById(caseId)
                 .orElseThrow(() -> new NotFoundException("Caso nao encontrado"));

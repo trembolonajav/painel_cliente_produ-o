@@ -114,6 +114,38 @@ public class DocumentService {
         return create(caseId, request, actor);
     }
 
+    @Transactional
+    public DocumentDeleteResponse delete(UUID caseId, UUID documentId, OfficeUser actor) {
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Documento nao encontrado"));
+        if (!document.getCaseFile().getId().equals(caseId)) {
+            throw new NotFoundException("Documento nao pertence ao caso");
+        }
+
+        String storageKey = document.getStorageKey();
+        documentRepository.delete(document);
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("caseId", caseId.toString());
+        details.put("hadStorageKey", storageKey != null && !storageKey.isBlank());
+        if (storageKey != null && !storageKey.isBlank()) {
+            details.put("storageKey", storageKey);
+        }
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "DOCUMENT",
+                documentId,
+                "DELETE",
+                details);
+
+        return new DocumentDeleteResponse(
+                true,
+                false,
+                "Registro removido com hard delete. Arquivo fisico pode permanecer no storage.");
+    }
+
     private DocumentResponse toResponse(Document document) {
         return new DocumentResponse(
                 document.getId(),

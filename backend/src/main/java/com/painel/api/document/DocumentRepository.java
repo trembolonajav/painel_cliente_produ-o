@@ -9,4 +9,5 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
     List<Document> findByCaseFile_IdOrderByCreatedAtDesc(UUID caseId);
     List<Document> findByCaseFile_IdAndVisibilityOrderByCreatedAtDesc(UUID caseId, Visibility visibility);
     List<Document> findByCaseFile_IdAndVisibilityAndStatusOrderByCreatedAtDesc(UUID caseId, Visibility visibility, DocumentStatus status);
+    long countByUploadedBy_Id(UUID userId);
 }

@@ -7,6 +7,10 @@ import {
   createCaseTaskRequest,
   createCaseDocumentRequest,
   createCaseUpdateRequest,
+  deleteCaseDocumentRequest,
+  deleteCaseStageRequest,
+  deleteCaseTaskRequest,
+  deleteCaseUpdateRequest,
   getCaseDetailRequest,
   getCaseDocumentDownloadUrlRequest,
   getCasePortalLinkStatusRequest,
@@ -343,6 +347,62 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     toast.info("Fluxo de pendência de documento ainda sem endpoint dedicado.");
   }, []);
 
+  const handleDeleteStage = useCallback(
+    async (stageId: string) => {
+      if (!can("stages_write")) return;
+      try {
+        await deleteCaseStageRequest(stageId);
+        toast.success("Etapa excluida");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao excluir etapa.");
+      }
+    },
+    [can, refresh],
+  );
+
+  const handleDeleteTask = useCallback(
+    async (taskId: string) => {
+      if (!can("tasks_write")) return;
+      try {
+        await deleteCaseTaskRequest(taskId);
+        toast.success("Tarefa excluida");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao excluir tarefa.");
+      }
+    },
+    [can, refresh],
+  );
+
+  const handleDeleteUpdate = useCallback(
+    async (updateId: string) => {
+      if (!caseId || !can("cases_write")) return;
+      try {
+        await deleteCaseUpdateRequest(caseId, updateId);
+        toast.success("Atualizacao excluida");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao excluir atualizacao.");
+      }
+    },
+    [can, caseId, refresh],
+  );
+
+  const handleDeleteDocument = useCallback(
+    async (documentId: string) => {
+      if (!caseId || !can("docs_write")) return;
+      try {
+        const result = await deleteCaseDocumentRequest(caseId, documentId);
+        toast.success(result.message);
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao excluir documento.");
+      }
+    },
+    [can, caseId, refresh],
+  );
+
   const handleDownloadDocument = useCallback(
     async (doc: CaseDocument) => {
       if (!caseId) return;
@@ -457,6 +517,10 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     handleAddUpdate,
     handleAddDocument,
     handleResolvePendingDocument,
+    handleDeleteDocument,
+    handleDeleteStage,
+    handleDeleteTask,
+    handleDeleteUpdate,
     handleDownloadDocument,
     handleGenerateLink,
     handleRevokeLink,

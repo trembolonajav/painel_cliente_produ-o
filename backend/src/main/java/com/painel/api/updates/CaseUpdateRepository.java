@@ -8,4 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface CaseUpdateRepository extends JpaRepository<CaseUpdate, UUID> {
     List<CaseUpdate> findByCaseFile_IdOrderByCreatedAtDesc(UUID caseId);
     List<CaseUpdate> findByCaseFile_IdAndVisibilityOrderByCreatedAtDesc(UUID caseId, Visibility visibility);
+    long countByCreatedBy_Id(UUID userId);
 }

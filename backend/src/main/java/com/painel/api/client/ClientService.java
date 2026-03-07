@@ -3,6 +3,7 @@ package com.painel.api.client;
 import com.painel.api.auth.AuthorizationService;
 import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
+import com.painel.api.casefile.CaseFileRepository;
 import com.painel.api.common.NotFoundException;
 import com.painel.api.user.OfficeRole;
 import com.painel.api.user.OfficeUser;
@@ -16,11 +17,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class ClientService {
 
     private final ClientRepository clientRepository;
+    private final CaseFileRepository caseFileRepository;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
 
-    public ClientService(ClientRepository clientRepository, AuthorizationService authorizationService, AuditService auditService) {
+    public ClientService(
+            ClientRepository clientRepository,
+            CaseFileRepository caseFileRepository,
+            AuthorizationService authorizationService,
+            AuditService auditService) {
         this.clientRepository = clientRepository;
+        this.caseFileRepository = caseFileRepository;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
     }
@@ -59,6 +66,30 @@ public class ClientService {
         Client saved = clientRepository.save(client);
         auditService.log(AuditActorType.OFFICE_USER, actor.getId(), "CLIENT", saved.getId(), "UPDATE", Map.of("name", saved.getName()));
         return toResponse(saved);
+    }
+
+    @Transactional
+    public ClientDeleteResponse delete(UUID id, OfficeUser actor) {
+        authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR);
+        Client client = findClient(id);
+        var linkedCases = caseFileRepository.findByClient_Id(id);
+        int deletedCases = 0;
+        if (!linkedCases.isEmpty()) {
+            deletedCases = linkedCases.size();
+            caseFileRepository.deleteAll(linkedCases);
+        }
+        clientRepository.delete(client);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CLIENT",
+                id,
+                "DELETE",
+                Map.of("deletedCasesCount", Integer.toString(deletedCases)));
+        return new ClientDeleteResponse(
+                true,
+                deletedCases,
+                "Cliente removido com hard delete. Casos vinculados tambem foram removidos. Arquivos fisicos podem permanecer no storage.");
     }
 
     private Client findClient(UUID id) {

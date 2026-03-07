@@ -3,10 +3,23 @@ import {
   Briefcase, Users, FileText, Settings, LogOut, Search, Plus, ChevronRight, Trash2, Shield,
   Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink, Eye
 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getItem } from "@/services/storage";
 import type { OfficeSettings, CaseWithComputed } from "@/types";
 import abrLogo from "@/assets/abr-logo.png";
+import { deleteCaseRequest } from "@/services/backend";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -61,10 +74,23 @@ const Dashboard = () => {
     handleUpdateNewCaseDoc,
     handleRemoveNewCaseDoc,
   } = useDashboardCases({ officeInitials: office?.initials, user });
+  const [deletingCaseId, setDeletingCaseId] = useState<string | null>(null);
 
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleDeleteCase = async () => {
+    if (!deletingCaseId) return;
+    try {
+      const result = await deleteCaseRequest(deletingCaseId);
+      toast.success(result.message);
+      setDeletingCaseId(null);
+      window.location.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao excluir caso.");
+    }
   };
 
   return (
@@ -338,7 +364,22 @@ const Dashboard = () => {
                         <h3 className="font-heading font-bold text-foreground text-sm leading-snug truncate">{c.title}</h3>
                         <p className="text-xs text-muted-foreground mt-0.5">{c.clientName} · {c.clientType}</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-gold transition-colors shrink-0 mt-1" />
+                      <div className="flex items-center gap-1">
+                        {can("cases_write") && (
+                          <span
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setDeletingCaseId(c.id);
+                            }}
+                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            title="Excluir caso"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </span>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-gold transition-colors shrink-0 mt-1" />
+                      </div>
                     </div>
 
                     <div className="mb-3">
@@ -388,6 +429,27 @@ const Dashboard = () => {
           )}
         </div>
       </main>
+
+      <AlertDialog open={!!deletingCaseId} onOpenChange={(open) => !open && setDeletingCaseId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tem certeza que deseja excluir este registro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação é permanente e não poderá ser desfeita.
+              <br />
+              Caso: documentos, etapas, tarefas, histórico, portal e outros vínculos também poderão ser removidos.
+              <br />
+              Arquivos físicos podem permanecer no storage.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteCase} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

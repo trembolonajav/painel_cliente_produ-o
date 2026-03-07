@@ -125,6 +125,23 @@ public class CaseService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public CaseDeleteResponse delete(UUID caseId, OfficeUser actor) {
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        CaseFile caseFile = findCase(caseId);
+        caseFileRepository.delete(caseFile);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE",
+                caseId,
+                "DELETE",
+                Map.of("clientId", caseFile.getClient().getId().toString()));
+        return new CaseDeleteResponse(
+                true,
+                "Registro removido com hard delete. Etapas, tarefas, documentos, atualizacoes e vinculos do portal foram removidos. Arquivos fisicos podem permanecer no storage.");
+    }
+
     @Transactional(readOnly = true)
     public List<CaseMemberResponse> listMembers(UUID caseId, OfficeUser actor) {
         authorizationService.requireCaseReadAccess(actor, caseId);

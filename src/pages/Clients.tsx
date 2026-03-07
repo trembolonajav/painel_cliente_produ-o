@@ -2,14 +2,24 @@
 import { useNavigate } from "react-router-dom";
 import {
   Briefcase, Users, FileText, Settings, LogOut, Search, Plus,
-  Phone, Mail, Edit2, Shield,
+  Phone, Mail, Edit2, Shield, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { listCasesRequest, listClientsRequest, createClientRequest, updateClientRequest } from "@/services/backend";
+import { listCasesRequest, listClientsRequest, createClientRequest, updateClientRequest, deleteClientRequest } from "@/services/backend";
 import { getItem } from "@/services/storage";
 import type { OfficeSettings, Client, CaseData } from "@/types";
 import abrLogo from "@/assets/abr-logo.png";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const Clients = () => {
   const navigate = useNavigate();
@@ -20,6 +30,7 @@ const Clients = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [cases, setCases] = useState<CaseData[]>([]);
 
@@ -107,6 +118,18 @@ const Clients = () => {
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleDeleteClient = async () => {
+    if (!deletingClientId) return;
+    try {
+      const result = await deleteClientRequest(deletingClientId);
+      toast.success(result.message);
+      setDeletingClientId(null);
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao excluir cliente.");
+    }
   };
 
   return (
@@ -225,9 +248,18 @@ const Clients = () => {
                   </div>
                 </div>
                 {can("clients_write") && (
-                  <button onClick={() => openEditForm(c)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                    <Edit2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => openEditForm(c)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setDeletingClientId(c.id)}
+                      className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                      title="Excluir cliente"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -241,6 +273,27 @@ const Clients = () => {
           )}
         </div>
       </main>
+
+      <AlertDialog open={!!deletingClientId} onOpenChange={(open) => !open && setDeletingClientId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tem certeza que deseja excluir este registro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação é permanente e não poderá ser desfeita.
+              <br />
+              Cliente: vínculos relacionados podem ser afetados.
+              <br />
+              Casos vinculados também serão removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteClient} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

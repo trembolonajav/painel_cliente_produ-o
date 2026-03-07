@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -51,6 +52,14 @@ public class CaseWorkflowController {
         return caseWorkflowService.updateStage(stageId, request, actor);
     }
 
+    @DeleteMapping("/stages/{stageId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteStage(
+            @PathVariable UUID stageId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        caseWorkflowService.deleteStage(stageId, actor);
+    }
+
     @GetMapping("/cases/{caseId}/tasks")
     @ResponseStatus(HttpStatus.OK)
     public List<CaseTaskResponse> listTasks(
@@ -75,5 +84,13 @@ public class CaseWorkflowController {
             @Valid @RequestBody CaseTaskRequest request,
             @AuthenticationPrincipal OfficeUser actor) {
         return caseWorkflowService.updateTask(taskId, request, actor);
+    }
+
+    @DeleteMapping("/tasks/{taskId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteTask(
+            @PathVariable UUID taskId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        caseWorkflowService.deleteTask(taskId, actor);
     }
 }

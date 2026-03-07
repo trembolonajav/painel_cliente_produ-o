@@ -1,14 +1,24 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Briefcase, Users as UsersIcon, FileText, Settings, LogOut, Search, Plus, Edit2, Shield,
+  Briefcase, Users as UsersIcon, FileText, Settings, LogOut, Search, Plus, Edit2, Shield, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getItem } from "@/services/storage";
-import { createUserRequest, listUsersRequest, updateUserRequest } from "@/services/backend";
+import { createUserRequest, deleteUserRequest, listUsersRequest, updateUserRequest } from "@/services/backend";
 import type { OfficeSettings, User, UserRole } from "@/types";
 import abrLogo from "@/assets/abr-logo.png";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const roleLabel: Record<UserRole, string> = {
   administrador: "Administrador",
@@ -25,6 +35,7 @@ const Users = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
 
   const [formName, setFormName] = useState("");
@@ -136,6 +147,18 @@ const Users = () => {
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleDelete = async () => {
+    if (!deletingId) return;
+    try {
+      const result = await deleteUserRequest(deletingId);
+      toast.success(result.message);
+      setDeletingId(null);
+      await loadUsers();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao excluir usuário.");
+    }
   };
 
   if (!can("users_manage")) {
@@ -263,6 +286,13 @@ const Users = () => {
                 <button onClick={() => openEditForm(u)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
                   <Edit2 className="w-4 h-4" />
                 </button>
+                <button
+                  onClick={() => setDeletingId(u.id)}
+                  className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                  title="Excluir usuário"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))}
           </div>
@@ -275,6 +305,27 @@ const Users = () => {
           )}
         </div>
       </main>
+
+      <AlertDialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tem certeza que deseja excluir este registro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação é permanente e não poderá ser desfeita.
+              <br />
+              Usuário: o acesso será removido definitivamente.
+              <br />
+              Dependendo do item, dados relacionados também poderão ser removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

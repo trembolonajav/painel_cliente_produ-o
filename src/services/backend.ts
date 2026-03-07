@@ -28,6 +28,11 @@ type UserResponse = {
   active: boolean;
 };
 
+type UserDeleteResponse = {
+  deleted: boolean;
+  message: string;
+};
+
 type ClientResponse = {
   id: string;
   name: string;
@@ -35,6 +40,12 @@ type ClientResponse = {
   email?: string;
   phone?: string;
   createdAt: string;
+};
+
+type ClientDeleteResponse = {
+  deleted: boolean;
+  deletedCasesCount: number;
+  message: string;
 };
 
 type CaseResponse = {
@@ -48,6 +59,11 @@ type CaseResponse = {
   priority: BackendCasePriority;
   createdAt: string;
   updatedAt: string;
+};
+
+type CaseDeleteResponse = {
+  deleted: boolean;
+  message: string;
 };
 
 type CaseMemberResponse = {
@@ -96,6 +112,12 @@ type DocumentPresignResponse = {
 type DocumentDownloadLinkResponse = {
   url: string;
   expiresAt: string;
+};
+
+type DocumentDeleteResponse = {
+  deleted: boolean;
+  storageObjectDeleted: boolean;
+  message: string;
 };
 
 type PortalLinkStatus = "ACTIVE" | "REVOKED" | "EXPIRED";
@@ -342,6 +364,13 @@ export async function updateUserRequest(
   };
 }
 
+export async function deleteUserRequest(id: string): Promise<UserDeleteResponse> {
+  return apiRequest<UserDeleteResponse>(`/users/${id}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
 export async function listClientsRequest(search?: string): Promise<Client[]> {
   const query = search ? `?search=${encodeURIComponent(search)}` : "";
   const response = await apiRequest<ClientResponse[]>(`/clients${query}`, { auth: true });
@@ -420,6 +449,13 @@ export async function updateClientRequest(
   };
 }
 
+export async function deleteClientRequest(id: string): Promise<ClientDeleteResponse> {
+  return apiRequest<ClientDeleteResponse>(`/clients/${id}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
 export async function listCasesRequest(search?: string): Promise<CaseData[]> {
   const query = search ? `?search=${encodeURIComponent(search)}` : "";
   const response = await apiRequest<CaseResponse[]>(`/cases${query}`, { auth: true });
@@ -481,6 +517,13 @@ export async function createCaseRequest(data: {
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
   };
+}
+
+export async function deleteCaseRequest(caseId: string): Promise<CaseDeleteResponse> {
+  return apiRequest<CaseDeleteResponse>(`/cases/${caseId}`, {
+    method: "DELETE",
+    auth: true,
+  });
 }
 
 export type CaseDetailPayload = {
@@ -545,6 +588,13 @@ export async function createCaseUpdateRequest(caseId: string, content: string, i
       type: "TEXT",
       content,
     },
+  });
+}
+
+export async function deleteCaseUpdateRequest(caseId: string, updateId: string): Promise<void> {
+  await apiRequest<void>(`/cases/${caseId}/updates/${updateId}`, {
+    method: "DELETE",
+    auth: true,
   });
 }
 
@@ -714,6 +764,13 @@ export async function getCaseDocumentDownloadUrlRequest(caseId: string, document
     auth: true,
   });
   return link.url.startsWith("http") ? link.url : `${getApiBaseUrl()}${link.url}`;
+}
+
+export async function deleteCaseDocumentRequest(caseId: string, documentId: string): Promise<DocumentDeleteResponse> {
+  return apiRequest<DocumentDeleteResponse>(`/cases/${caseId}/documents/${documentId}`, {
+    method: "DELETE",
+    auth: true,
+  });
 }
 
 export type ClientPortalSessionResult = {
@@ -978,6 +1035,13 @@ export async function updateCaseStageRequest(
   };
 }
 
+export async function deleteCaseStageRequest(stageId: string): Promise<void> {
+  await apiRequest<void>(`/stages/${stageId}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
 export async function listCaseTasksRequest(caseId: string): Promise<TaskDto[]> {
   const response = await apiRequest<CaseTaskResponse[]>(`/cases/${caseId}/tasks`, { auth: true });
   return response.map((item) => ({
@@ -1078,6 +1142,13 @@ export async function updateCaseTaskRequest(
     updatedAt: item.updatedAt,
     completedAt: item.completedAt,
   };
+}
+
+export async function deleteCaseTaskRequest(taskId: string): Promise<void> {
+  await apiRequest<void>(`/tasks/${taskId}`, {
+    method: "DELETE",
+    auth: true,
+  });
 }
 
 type PatrimonyStructureResponse = {

@@ -8,6 +8,10 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface CaseFileRepository extends JpaRepository<CaseFile, UUID> {
+    long countByClient_Id(UUID clientId);
+    long countByCreatedBy_Id(UUID userId);
+    List<CaseFile> findByClient_Id(UUID clientId);
+
     @Query("""
             select c
             from CaseFile c
