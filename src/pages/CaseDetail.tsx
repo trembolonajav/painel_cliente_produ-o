@@ -133,6 +133,8 @@ const CaseDetail = () => {
 
   const sc = statusConfig[caseData.status];
   const StatusIcon = sc.icon;
+  const pendingDocuments = caseData.documents.filter((doc) => doc.status === "pendente");
+  const availableDocuments = caseData.documents.filter((doc) => doc.status === "disponivel");
 
   return (
     <div className="min-h-screen bg-background">
@@ -489,33 +491,94 @@ const CaseDetail = () => {
                 </div>
               </div>
             )}
-            <div className="space-y-2">
-              {caseData.documents.map((doc) => (
-                <div key={doc.id} className="flex items-center gap-3 p-3 rounded-lg border hover:border-gold/30 transition-colors">
-                  <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">{doc.name}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{doc.type}</span>
-                      <span>·</span>
-                      <span>{doc.date}</span>
-                      <span>·</span>
-                      <span className={`${doc.visibility === "cliente" ? "text-gold" : "text-muted-foreground"}`}>
-                        {doc.visibility === "cliente" ? "Visível ao cliente" : "Interno"}
-                      </span>
+            <div className="space-y-5">
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-foreground">Documentos pendentes</h3>
+                  <span className="text-xs text-muted-foreground">Pendente = aguardando envio</span>
+                </div>
+                <div className="space-y-2">
+                  {pendingDocuments.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Nenhum documento pendente.</p>
+                  )}
+                  {pendingDocuments.map((doc) => (
+                    <div key={doc.id} className="flex items-center gap-3 p-3 rounded-lg border border-gold/20 bg-gold/5 hover:border-gold/30 transition-colors">
+                      <FileText className="w-5 h-5 text-gold shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground truncate">{doc.name}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{doc.type}</span>
+                          <span>·</span>
+                          <span>{doc.date}</span>
+                          <span>·</span>
+                          <span className={`${doc.visibility === "cliente" ? "text-gold" : "text-muted-foreground"}`}>
+                            {doc.visibility === "cliente" ? "Disponível ao cliente" : "Interno"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="status-badge status-waiting">Pendente</span>
+                        {can("docs_write") && (
+                          <>
+                            <button
+                              onClick={() => handleResolvePendingDocument(doc.id)}
+                              className="px-2 py-1 text-xs border rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              Recebido
+                            </button>
+                            <button
+                              onClick={() =>
+                                setPendingDelete({
+                                  kind: "document",
+                                  id: doc.id,
+                                  title: "Excluir documento",
+                                  message:
+                                    "Tem certeza que deseja excluir este documento? Essa ação é permanente e não poderá ser desfeita. O registro será removido e o arquivo físico pode permanecer no storage.",
+                                })
+                              }
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Excluir documento"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  {doc.status === "pendente" ? (
-                    <div className="flex items-center gap-2">
-                      <span className="status-badge status-waiting">Pendente</span>
-                      {can("docs_write") && (
-                        <>
-                          <button
-                            onClick={() => handleResolvePendingDocument(doc.id)}
-                            className="px-2 py-1 text-xs border rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            Recebido
-                          </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-foreground">Documentos recebidos / disponíveis</h3>
+                  <span className="text-xs text-muted-foreground">Disponível = já recebido / acessível</span>
+                </div>
+                <div className="space-y-2">
+                  {availableDocuments.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Nenhum documento recebido.</p>
+                  )}
+                  {availableDocuments.map((doc) => (
+                    <div key={doc.id} className="flex items-center gap-3 p-3 rounded-lg border hover:border-gold/30 transition-colors">
+                      <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground truncate">{doc.name}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{doc.type}</span>
+                          <span>·</span>
+                          <span>{doc.date}</span>
+                          <span>·</span>
+                          <span className={`${doc.visibility === "cliente" ? "text-gold" : "text-muted-foreground"}`}>
+                            {doc.visibility === "cliente" ? "Disponível ao cliente" : "Interno"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="status-badge status-complete">Disponível</span>
+                        <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                          <Download className="w-4 h-4" />
+                        </button>
+                        {can("docs_write") && (
                           <button
                             onClick={() =>
                               setPendingDelete({
@@ -531,35 +594,12 @@ const CaseDetail = () => {
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
-                        </>
-                      )}
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                        <Download className="w-4 h-4" />
-                      </button>
-                      {can("docs_write") && (
-                        <button
-                          onClick={() =>
-                            setPendingDelete({
-                              kind: "document",
-                              id: doc.id,
-                              title: "Excluir documento",
-                              message:
-                                "Tem certeza que deseja excluir este documento? Essa ação é permanente e não poderá ser desfeita. O registro será removido e o arquivo físico pode permanecer no storage.",
-                            })
-                          }
-                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                          title="Excluir documento"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  ))}
                 </div>
-              ))}
+              </section>
             </div>
           </div>
         )}

@@ -163,6 +163,7 @@ const ClientPortal = () => {
     [stages],
   );
   const pendingDocs = useMemo(() => docs.filter((doc) => doc.status === "pendente"), [docs]);
+  const availableDocs = useMemo(() => docs.filter((doc) => doc.status === "disponivel"), [docs]);
 
   useEffect(() => {
     setCurrentStructurePage(1);
@@ -427,25 +428,52 @@ const ClientPortal = () => {
         )}
 
         {activeSection === "documentos" && (
-          <div className="animate-fade-in space-y-3">
-            <p className="text-sm text-muted-foreground mb-4">Documentos do seu caso disponiveis para consulta.</p>
-            {docs.length === 0 && <p className="text-sm text-muted-foreground">Nenhum documento disponivel.</p>}
-            {docs.map((doc) => (
-              <div key={doc.id} className={`flex items-center gap-3 p-4 rounded-xl border ${doc.status === "pendente" ? "border-gold/30 bg-gold/5" : "bg-card"}`}>
-                <FileText className={`w-5 h-5 shrink-0 ${doc.status === "pendente" ? "text-gold" : "text-muted-foreground"}`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground truncate">{doc.name}</p>
-                  <p className="text-xs text-muted-foreground">{doc.type} - {formatShortDate(doc.date)}</p>
-                </div>
-                {doc.status === "pendente" ? (
-                  <span className="status-badge status-waiting text-[11px]">Pendente</span>
-                ) : (
-                  <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-gold transition-colors">
-                    <Download className="w-4 h-4" />
-                  </button>
-                )}
+          <div className="animate-fade-in space-y-5">
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-foreground">Documentos pendentes</h3>
+                <span className="text-xs text-muted-foreground">Pendente = aguardando envio</span>
               </div>
-            ))}
+              <div className="space-y-3">
+                {pendingDocs.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Você não possui documentos pendentes no momento.</p>
+                )}
+                {pendingDocs.map((doc) => (
+                  <div key={doc.id} className="flex items-center gap-3 p-4 rounded-xl border border-gold/30 bg-gold/5">
+                    <FileText className="w-5 h-5 shrink-0 text-gold" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{doc.name}</p>
+                      <p className="text-xs text-muted-foreground">{doc.type} - {formatShortDate(doc.date)}</p>
+                    </div>
+                    <span className="status-badge status-waiting text-[11px]">Pendente</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-foreground">Documentos recebidos</h3>
+                <span className="text-xs text-muted-foreground">Disponível = já recebido / acessível</span>
+              </div>
+              <div className="space-y-3">
+                {availableDocs.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nenhum documento disponível no momento.</p>
+                )}
+                {availableDocs.map((doc) => (
+                  <div key={doc.id} className="flex items-center gap-3 p-4 rounded-xl border bg-card">
+                    <FileText className="w-5 h-5 shrink-0 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{doc.name}</p>
+                      <p className="text-xs text-muted-foreground">{doc.type} - {formatShortDate(doc.date)}</p>
+                    </div>
+                    <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-gold transition-colors">
+                      <Download className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         )}
 
