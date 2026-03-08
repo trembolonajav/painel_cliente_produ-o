@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface CaseMemberRepository extends JpaRepository<CaseMember, CaseMemberId> {
     List<CaseMember> findByCaseFile_Id(UUID caseId);
     Optional<CaseMember> findByCaseFile_IdAndUser_Id(UUID caseId, UUID userId);
+    Optional<CaseMember> findByCaseFile_IdAndPermission(UUID caseId, CaseMemberPermission permission);
     boolean existsByCaseFile_IdAndUser_Id(UUID caseId, UUID userId);
     void deleteByCaseFile_IdAndUser_Id(UUID caseId, UUID userId);
 }

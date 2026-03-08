@@ -2,6 +2,8 @@ package com.painel.api.portal;
 
 import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
+import com.painel.api.casefile.CaseMemberPermission;
+import com.painel.api.casefile.CaseMemberRepository;
 import com.painel.api.common.UnauthorizedException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +23,7 @@ public class ClientPortalSessionService {
 
     private final CasePortalLinkRepository casePortalLinkRepository;
     private final ClientPortalSessionRepository clientPortalSessionRepository;
+    private final CaseMemberRepository caseMemberRepository;
     private final PortalTokenService portalTokenService;
     private final PortalProperties portalProperties;
     private final AuditService auditService;
@@ -28,11 +31,13 @@ public class ClientPortalSessionService {
     public ClientPortalSessionService(
             CasePortalLinkRepository casePortalLinkRepository,
             ClientPortalSessionRepository clientPortalSessionRepository,
+            CaseMemberRepository caseMemberRepository,
             PortalTokenService portalTokenService,
             PortalProperties portalProperties,
             AuditService auditService) {
         this.casePortalLinkRepository = casePortalLinkRepository;
         this.clientPortalSessionRepository = clientPortalSessionRepository;
+        this.caseMemberRepository = caseMemberRepository;
         this.portalTokenService = portalTokenService;
         this.portalProperties = portalProperties;
         this.auditService = auditService;
@@ -146,6 +151,8 @@ public class ClientPortalSessionService {
         ClientPortalSession session = resolveSessionOrThrow(request);
         var c = session.getCaseFile();
         var cl = session.getClient();
+        var owner = caseMemberRepository.findByCaseFile_IdAndPermission(c.getId(), CaseMemberPermission.OWNER)
+                .orElse(null);
         return new ClientPortalCaseResponse(
                 c.getId(),
                 c.getTitle(),
@@ -156,7 +163,9 @@ public class ClientPortalSessionService {
                 c.getUpdatedAt(),
                 c.getClosedAt(),
                 cl.getId(),
-                cl.getName());
+                cl.getName(),
+                owner != null ? owner.getUser().getName() : null,
+                owner != null ? owner.getUser().getPhone() : null);
     }
 
     @Transactional

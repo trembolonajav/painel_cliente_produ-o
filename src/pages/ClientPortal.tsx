@@ -171,12 +171,9 @@ const ClientPortal = () => {
   );
   const pendingDocs = useMemo(() => docs.filter((doc) => doc.status === "pendente"), [docs]);
   const availableDocs = useMemo(() => docs.filter((doc) => doc.status === "disponivel"), [docs]);
-  const whatsappPhone = useMemo(
-    () => normalizeWhatsappPhone(import.meta.env.VITE_PORTAL_WHATSAPP_PHONE as string | undefined),
-    [],
-  );
+  const whatsappPhone = useMemo(() => normalizeWhatsappPhone(caseData?.responsiblePhone), [caseData?.responsiblePhone]);
   const whatsappMessage = useMemo(() => {
-    const base = `Olá, estou entrando em contato sobre a documentação pendente do meu caso "${caseData?.title ?? ""}". Gostaria de enviar os documentos solicitados.`;
+    const base = `Ola, estou entrando em contato sobre a documentacao pendente do meu caso "${caseData?.title ?? ""}". Gostaria de enviar os documentos solicitados.`;
     if (pendingDocs.length === 0) return base;
     const pendingList = pendingDocs
       .slice(0, 3)

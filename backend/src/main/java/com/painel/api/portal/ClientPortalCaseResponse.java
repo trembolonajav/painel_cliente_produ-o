@@ -15,6 +15,8 @@ public record ClientPortalCaseResponse(
         OffsetDateTime updatedAt,
         OffsetDateTime closedAt,
         UUID clientId,
-        String clientName
+        String clientName,
+        String responsibleName,
+        String responsiblePhone
 ) {
 }

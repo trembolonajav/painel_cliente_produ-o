@@ -24,6 +24,9 @@ public class OfficeUser {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
+    @Column(length = 20)
+    private String phone;
+
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
@@ -63,6 +66,8 @@ public class OfficeUser {
     public void setName(String name) { this.name = name; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email == null ? null : email.toLowerCase(); }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public OfficeRole getRole() { return role; }

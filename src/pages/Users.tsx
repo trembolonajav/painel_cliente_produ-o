@@ -26,6 +26,17 @@ const roleLabel: Record<UserRole, string> = {
   estagiario: "Estagiário",
 };
 
+const normalizePhoneDigits = (value: string): string => value.replace(/\D/g, "").slice(0, 11);
+
+const formatPhone = (value?: string): string => {
+  if (!value) return "";
+  const digits = normalizePhoneDigits(value);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`;
+};
+
 const Users = () => {
   const navigate = useNavigate();
   const { user, logout, can } = useAuth();
@@ -40,6 +51,7 @@ const Users = () => {
 
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
+  const [formPhone, setFormPhone] = useState("");
   const [formPassword, setFormPassword] = useState("");
   const [formRole, setFormRole] = useState<UserRole>("gestor");
   const [formActive, setFormActive] = useState(true);
@@ -66,7 +78,8 @@ const Users = () => {
         (u) =>
           !searchQuery ||
           u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          u.email.toLowerCase().includes(searchQuery.toLowerCase()),
+          u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (u.phone ?? "").includes(normalizePhoneDigits(searchQuery)),
       ),
     [searchQuery, users],
   );
@@ -75,6 +88,7 @@ const Users = () => {
     setEditingId(null);
     setFormName("");
     setFormEmail("");
+    setFormPhone("");
     setFormPassword("");
     setFormRole("gestor");
     setFormActive(true);
@@ -89,6 +103,7 @@ const Users = () => {
     setEditingId(u.id);
     setFormName(u.name);
     setFormEmail(u.email);
+    setFormPhone(formatPhone(u.phone));
     setFormPassword("");
     setFormRole(u.role);
     setFormActive(u.active);
@@ -102,6 +117,7 @@ const Users = () => {
     }
 
     const email = formEmail.trim().toLowerCase();
+    const normalizedPhone = normalizePhoneDigits(formPhone);
     const hasDuplicateEmail = users.some((u) => u.email.toLowerCase() === email && u.id !== editingId);
     if (hasDuplicateEmail) {
       toast.error("Já existe um usuário com este e-mail.");
@@ -112,6 +128,10 @@ const Users = () => {
       toast.error("Senha deve ter no mínimo 8 caracteres.");
       return;
     }
+    if (normalizedPhone && normalizedPhone.length !== 10 && normalizedPhone.length !== 11) {
+      toast.error("Telefone deve conter 10 ou 11 dígitos.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -119,6 +139,7 @@ const Users = () => {
         await updateUserRequest(editingId, {
           name: formName.trim(),
           email,
+          phone: normalizedPhone || undefined,
           role: formRole,
           active: formActive,
           ...(formPassword.trim() ? { password: formPassword.trim() } : {}),
@@ -128,6 +149,7 @@ const Users = () => {
         await createUserRequest({
           name: formName.trim(),
           email,
+          phone: normalizedPhone || undefined,
           password: formPassword.trim(),
           role: formRole,
           active: formActive,
@@ -242,6 +264,16 @@ const Users = () => {
                   <input value={formEmail} onChange={(e) => setFormEmail(e.target.value)} className="input-field text-sm" placeholder="email@exemplo.com" />
                 </div>
                 <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 block">Telefone</label>
+                  <input
+                    value={formPhone}
+                    onChange={(e) => setFormPhone(formatPhone(e.target.value))}
+                    className="input-field text-sm"
+                    placeholder="(62) 9 9274-3454"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div>
                   <label className="text-sm font-medium text-foreground mb-1.5 block">{editingId ? "Nova senha (opcional)" : "Senha"}</label>
                   <input value={formPassword} onChange={(e) => setFormPassword(e.target.value)} type="password" className="input-field text-sm" placeholder="Mínimo 8 caracteres" />
                 </div>
@@ -279,6 +311,7 @@ const Users = () => {
                   <h3 className="font-heading font-bold text-foreground text-sm">{u.name}</h3>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
                     <span>{u.email}</span>
+                    {u.phone && <span>{formatPhone(u.phone)}</span>}
                     <span className="status-badge status-progress">{roleLabel[u.role]}</span>
                     <span className={u.active ? "text-[hsl(152_55%_39%)]" : "text-destructive"}>{u.active ? "Ativo" : "Inativo"}</span>
                   </div>

@@ -73,6 +73,7 @@ public class UserService {
         OfficeUser user = new OfficeUser();
         user.setName(request.name().trim());
         user.setEmail(normalizedEmail);
+        user.setPhone(normalizePhone(request.phone()));
         user.setPasswordHash(passwordEncoder.encode(request.password().trim()));
         user.setRole(request.role());
         user.setActive(request.active());
@@ -103,6 +104,7 @@ public class UserService {
         }
 
         user.setName(request.name().trim());
+        user.setPhone(normalizePhone(request.phone()));
         user.setRole(request.role());
         user.setActive(request.active());
         if (request.password() != null && !request.password().isBlank()) {
@@ -211,10 +213,26 @@ public class UserService {
                 user.getId(),
                 user.getName(),
                 user.getEmail(),
+                user.getPhone(),
                 user.getRole(),
                 user.isActive(),
                 user.getCreatedAt(),
                 user.getUpdatedAt(),
                 user.getLastLoginAt());
+    }
+
+    private String normalizePhone(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String digits = trimmed.replaceAll("\\D", "");
+        if (digits.length() != 10 && digits.length() != 11) {
+            throw new IllegalArgumentException("Telefone deve conter 10 ou 11 digitos.");
+        }
+        return digits;
     }
 }

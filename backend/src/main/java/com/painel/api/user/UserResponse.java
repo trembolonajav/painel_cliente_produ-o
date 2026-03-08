@@ -7,6 +7,7 @@ public record UserResponse(
         UUID id,
         String name,
         String email,
+        String phone,
         OfficeRole role,
         boolean active,
         OffsetDateTime createdAt,

@@ -369,7 +369,7 @@ const CaseDetail = () => {
                 <div className="bg-gold/10 rounded-xl border border-gold/20 p-5">
                   <h3 className="text-sm font-medium text-foreground mb-1">Pendências do cliente</h3>
                   <p className="text-xs text-muted-foreground">{caseData.nextAction}</p>
-                  <p className="text-lg font-bold text-gold mt-2">{caseData.pendingClient} item{caseData.pendingClient > 1 ? "ns" : ""}</p>
+                  <p className="text-lg font-bold text-gold mt-2">{caseData.pendingClient} {caseData.pendingClient === 1 ? "item" : "itens"}</p>
                 </div>
               )}
 
@@ -478,12 +478,19 @@ const CaseDetail = () => {
                     <option value="disponivel">Disponível</option>
                     <option value="pendente">Pendente</option>
                   </select>
-                  <input
-                    type="file"
-                    className="input-field text-sm"
-                    onChange={(e) => handleSetNewDocFile(e.target.files?.[0] ?? null)}
-                  />
+                  <label className="input-field text-sm h-[42px] flex items-center justify-between gap-2 cursor-pointer">
+                    <span className="truncate text-muted-foreground">Selecionar arquivo</span>
+                    <span className="px-2 py-1 text-xs rounded-md border text-muted-foreground">Escolher</span>
+                    <input
+                      type="file"
+                      className="sr-only"
+                      onChange={(e) => handleSetNewDocFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  O arquivo selecionado sera enviado ao adicionar o documento.
+                </p>
                 <div className="flex justify-end">
                   <button onClick={handleAddDocument} className="btn-gold px-4 py-2 text-sm flex items-center gap-1">
                     <Plus className="w-4 h-4" /> Adicionar documento

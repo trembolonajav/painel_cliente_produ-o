@@ -24,6 +24,7 @@ type UserResponse = {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: BackendRole;
   active: boolean;
 };
@@ -156,6 +157,8 @@ type ClientPortalCaseResponse = {
   closedAt?: string;
   clientId: string;
   clientName: string;
+  responsibleName?: string;
+  responsiblePhone?: string;
 };
 
 type ClientPortalStageResponse = {
@@ -313,6 +316,7 @@ export async function listUsersRequest(): Promise<User[]> {
     id: item.id,
     name: item.name,
     email: item.email,
+    phone: item.phone,
     role: toFrontendRole(item.role),
     active: item.active,
   }));
@@ -321,6 +325,7 @@ export async function listUsersRequest(): Promise<User[]> {
 export async function createUserRequest(data: {
   name: string;
   email: string;
+  phone?: string;
   password: string;
   role: UserRole;
   active: boolean;
@@ -331,6 +336,7 @@ export async function createUserRequest(data: {
     body: {
       name: data.name,
       email: data.email,
+      phone: data.phone || null,
       password: data.password,
       role: toBackendRole(data.role),
       active: data.active,
@@ -340,6 +346,7 @@ export async function createUserRequest(data: {
     id: response.id,
     name: response.name,
     email: response.email,
+    phone: response.phone,
     role: toFrontendRole(response.role),
     active: response.active,
   };
@@ -350,6 +357,7 @@ export async function updateUserRequest(
   data: {
     name: string;
     email: string;
+    phone?: string;
     password?: string;
     role: UserRole;
     active: boolean;
@@ -361,6 +369,7 @@ export async function updateUserRequest(
     body: {
       name: data.name,
       email: data.email,
+      phone: data.phone || null,
       password: data.password || null,
       role: toBackendRole(data.role),
       active: data.active,
@@ -370,6 +379,7 @@ export async function updateUserRequest(
     id: response.id,
     name: response.name,
     email: response.email,
+    phone: response.phone,
     role: toFrontendRole(response.role),
     active: response.active,
   };
@@ -857,6 +867,8 @@ export type ClientPortalCase = {
   closedAt?: string;
   clientId: string;
   clientName: string;
+  responsibleName?: string;
+  responsiblePhone?: string;
 };
 
 export type ClientPortalStage = {
@@ -898,6 +910,8 @@ export async function getClientPortalCaseRequest(sessionToken?: string): Promise
     closedAt: response.closedAt,
     clientId: response.clientId,
     clientName: response.clientName,
+    responsibleName: response.responsibleName,
+    responsiblePhone: response.responsiblePhone,
   };
 }
 
