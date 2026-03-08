@@ -78,6 +78,13 @@ const formatShortDate = (dateValue: string): string =>
     year: "numeric",
   });
 
+const normalizeWhatsappPhone = (value?: string): string | null => {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return null;
+  return digits.length <= 11 ? `55${digits}` : digits;
+};
+
 const ClientPortal = () => {
   const navigate = useNavigate();
   const { session, clearSession } = usePortal();
@@ -164,6 +171,23 @@ const ClientPortal = () => {
   );
   const pendingDocs = useMemo(() => docs.filter((doc) => doc.status === "pendente"), [docs]);
   const availableDocs = useMemo(() => docs.filter((doc) => doc.status === "disponivel"), [docs]);
+  const whatsappPhone = useMemo(
+    () => normalizeWhatsappPhone(import.meta.env.VITE_PORTAL_WHATSAPP_PHONE as string | undefined),
+    [],
+  );
+  const whatsappMessage = useMemo(() => {
+    const base = `Olá, estou entrando em contato sobre a documentação pendente do meu caso "${caseData?.title ?? ""}". Gostaria de enviar os documentos solicitados.`;
+    if (pendingDocs.length === 0) return base;
+    const pendingList = pendingDocs
+      .slice(0, 3)
+      .map((doc) => doc.name)
+      .join(", ");
+    return `${base} Documentos pendentes: ${pendingList}${pendingDocs.length > 3 ? "..." : ""}`;
+  }, [caseData?.title, pendingDocs]);
+  const whatsappUrl = useMemo(() => {
+    if (!whatsappPhone) return null;
+    return `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+  }, [whatsappPhone, whatsappMessage]);
 
   useEffect(() => {
     setCurrentStructurePage(1);
@@ -362,6 +386,20 @@ const ClientPortal = () => {
                 </li>
               ))}
             </ul>
+            <div className="mt-3">
+              {whatsappUrl ? (
+                <button
+                  onClick={() => window.open(whatsappUrl, "_blank", "noopener,noreferrer")}
+                  className="btn-gold px-4 py-2 text-xs sm:text-sm"
+                >
+                  Enviar documentacao pendente
+                </button>
+              ) : (
+                <div className="text-xs text-muted-foreground">
+                  Contato por WhatsApp indisponivel no momento.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
