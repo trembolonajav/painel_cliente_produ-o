@@ -60,6 +60,40 @@ public class CaseWorkflowController {
         caseWorkflowService.deleteStage(stageId, actor);
     }
 
+    @GetMapping("/stages/{stageId}/substeps")
+    @ResponseStatus(HttpStatus.OK)
+    public List<CaseStageSubstepResponse> listSubsteps(
+            @PathVariable UUID stageId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseWorkflowService.listSubsteps(stageId, actor);
+    }
+
+    @PostMapping("/stages/{stageId}/substeps")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CaseStageSubstepResponse createSubstep(
+            @PathVariable UUID stageId,
+            @Valid @RequestBody CaseStageSubstepRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseWorkflowService.createSubstep(stageId, request, actor);
+    }
+
+    @PatchMapping("/substeps/{substepId}")
+    @ResponseStatus(HttpStatus.OK)
+    public CaseStageSubstepResponse updateSubstep(
+            @PathVariable UUID substepId,
+            @Valid @RequestBody CaseStageSubstepRequest request,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseWorkflowService.updateSubstep(substepId, request, actor);
+    }
+
+    @DeleteMapping("/substeps/{substepId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSubstep(
+            @PathVariable UUID substepId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        caseWorkflowService.deleteSubstep(substepId, actor);
+    }
+
     @GetMapping("/cases/{caseId}/tasks")
     @ResponseStatus(HttpStatus.OK)
     public List<CaseTaskResponse> listTasks(

@@ -66,7 +66,7 @@ type CaseDeleteResponse = {
   message: string;
 };
 
-type CaseMemberResponse = {
+export type CaseMemberResponse = {
   userId: string;
   userName: string;
   userEmail: string;
@@ -201,6 +201,17 @@ type CaseStageResponse = {
   description?: string;
   position: number;
   status: "PENDING" | "ACTIVE" | "DONE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CaseStageSubstepResponse = {
+  id: string;
+  stageId: string;
+  title: string;
+  position: number;
+  status: "PENDING" | "IN_PROGRESS" | "DONE";
+  visibleToClient: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -469,7 +480,7 @@ export async function listCasesRequest(search?: string): Promise<CaseData[]> {
       clientId: item.clientId,
       status,
       priority: toFrontendCasePriority(item.priority),
-      responsible: "-",
+      responsible: "Não definido",
       team: [],
       currentStage: 0,
       nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
@@ -510,7 +521,7 @@ export async function createCaseRequest(data: {
     clientId: response.clientId,
     status,
     priority: toFrontendCasePriority(response.priority),
-    responsible: "-",
+    responsible: "Não definido",
     team: [],
     currentStage: 0,
     nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
@@ -532,13 +543,23 @@ export type CaseDetailPayload = {
   members: CaseMemberResponse[];
 };
 
+export async function listCaseMembersRequest(caseId: string): Promise<CaseMemberResponse[]> {
+  return apiRequest<CaseMemberResponse[]>(`/cases/${caseId}/members`, { auth: true });
+}
+
 export async function getCaseDetailRequest(caseId: string): Promise<CaseDetailPayload> {
   const [caseResponse, members] = await Promise.all([
     apiRequest<CaseResponse>(`/cases/${caseId}`, { auth: true }),
-    apiRequest<CaseMemberResponse[]>(`/cases/${caseId}/members`, { auth: true }),
+    listCaseMembersRequest(caseId),
   ]);
 
   const status = toFrontendCaseStatus(caseResponse.status);
+  const owner = members.find((member) => member.permission === "OWNER");
+  const responsibleName = owner?.userName ?? "Não definido";
+  const team = members
+    .filter((member) => member.permission !== "OWNER")
+    .map((member) => member.userName);
+
   return {
     caseData: {
       id: caseResponse.id,
@@ -548,8 +569,8 @@ export async function getCaseDetailRequest(caseId: string): Promise<CaseDetailPa
       clientId: caseResponse.clientId,
       status,
       priority: toFrontendCasePriority(caseResponse.priority),
-      responsible: members.find((member) => member.permission === "OWNER")?.userName ?? members[0]?.userName ?? "-",
-      team: members.map((member) => member.userName),
+      responsible: responsibleName,
+      team,
       currentStage: 0,
       nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
       createdAt: caseResponse.createdAt,
@@ -624,6 +645,17 @@ export type StageDto = {
   description?: string;
   position: number;
   status: "PENDING" | "ACTIVE" | "DONE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StageSubstepDto = {
+  id: string;
+  stageId: string;
+  title: string;
+  position: number;
+  status: "PENDING" | "IN_PROGRESS" | "DONE";
+  visibleToClient: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -1037,6 +1069,82 @@ export async function updateCaseStageRequest(
 
 export async function deleteCaseStageRequest(stageId: string): Promise<void> {
   await apiRequest<void>(`/stages/${stageId}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
+export async function listStageSubstepsRequest(stageId: string): Promise<StageSubstepDto[]> {
+  const response = await apiRequest<CaseStageSubstepResponse[]>(`/stages/${stageId}/substeps`, { auth: true });
+  return response
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((item) => ({
+      id: item.id,
+      stageId: item.stageId,
+      title: item.title,
+      position: item.position,
+      status: item.status,
+      visibleToClient: item.visibleToClient,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+}
+
+export async function createStageSubstepRequest(
+  stageId: string,
+  payload: {
+    title: string;
+    position: number;
+    status: "PENDING" | "IN_PROGRESS" | "DONE";
+    visibleToClient?: boolean;
+  },
+): Promise<StageSubstepDto> {
+  const item = await apiRequest<CaseStageSubstepResponse>(`/stages/${stageId}/substeps`, {
+    method: "POST",
+    auth: true,
+    body: payload,
+  });
+  return {
+    id: item.id,
+    stageId: item.stageId,
+    title: item.title,
+    position: item.position,
+    status: item.status,
+    visibleToClient: item.visibleToClient,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+export async function updateStageSubstepRequest(
+  substepId: string,
+  payload: {
+    title: string;
+    position: number;
+    status: "PENDING" | "IN_PROGRESS" | "DONE";
+    visibleToClient?: boolean;
+  },
+): Promise<StageSubstepDto> {
+  const item = await apiRequest<CaseStageSubstepResponse>(`/substeps/${substepId}`, {
+    method: "PATCH",
+    auth: true,
+    body: payload,
+  });
+  return {
+    id: item.id,
+    stageId: item.stageId,
+    title: item.title,
+    position: item.position,
+    status: item.status,
+    visibleToClient: item.visibleToClient,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+export async function deleteStageSubstepRequest(substepId: string): Promise<void> {
+  await apiRequest<void>(`/substeps/${substepId}`, {
     method: "DELETE",
     auth: true,
   });

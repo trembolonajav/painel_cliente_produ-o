@@ -50,6 +50,15 @@ export interface CaseData {
 }
 
 export type StageStatus = "concluido" | "em_andamento" | "pendente";
+export type StageSubstepStatus = "pendente" | "em_andamento" | "concluido";
+
+export interface CaseStageSubstep {
+  id: string;
+  stageId: string;
+  title: string;
+  status: StageSubstepStatus;
+  order: number;
+}
 
 export interface CaseStage {
   id: string;
@@ -60,6 +69,7 @@ export interface CaseStage {
   description: string;
   visibleToClient: boolean;
   order: number;
+  substeps?: CaseStageSubstep[];
 }
 
 export interface CaseTask {

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink,
   FileText, Copy, Bell, RefreshCw, Download, Eye, Plus,
-  CircleDot, Circle, Check, User, Calendar, Trash2
+  CircleDot, Circle, Check, User, Users, Calendar, Trash2
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import type { CaseWithComputed, CaseStage } from "@/types";
@@ -43,7 +43,7 @@ const tabs = [
 ];
 
 type PendingDelete = {
-  kind: "stage" | "task" | "document" | "update";
+  kind: "stage" | "substep" | "task" | "document" | "update";
   id: string;
   title: string;
   message: string;
@@ -61,6 +61,8 @@ const CaseDetail = () => {
     setNewStageName,
     newStageDescription,
     setNewStageDescription,
+    newSubstepTitles,
+    setNewSubstepTitle,
     newTaskLabel,
     setNewTaskLabel,
     newUpdateText,
@@ -76,6 +78,10 @@ const CaseDetail = () => {
     portalLinks,
     activeLink,
     handleAddStage,
+    handleAddSubstep,
+    handleSubstepStatusChange,
+    handleSubstepOrderChange,
+    handleDeleteSubstep,
     handleStageClick,
     handleToggleTask,
     handleAddTask,
@@ -97,6 +103,7 @@ const CaseDetail = () => {
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     if (pendingDelete.kind === "stage") await handleDeleteStage(pendingDelete.id);
+    if (pendingDelete.kind === "substep") await handleDeleteSubstep(pendingDelete.id);
     if (pendingDelete.kind === "task") await handleDeleteTask(pendingDelete.id);
     if (pendingDelete.kind === "document") await handleDeleteDocument(pendingDelete.id);
     if (pendingDelete.kind === "update") await handleDeleteUpdate(pendingDelete.id);
@@ -258,6 +265,74 @@ const CaseDetail = () => {
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{stage.description}</p>
+                      <div className="mt-3 ml-1 pl-3 border-l border-border/60 space-y-2">
+                        {stage.substeps && stage.substeps.length > 0 ? (
+                          stage.substeps.map((substep) => (
+                            <div key={substep.id} className="rounded-md border border-border/70 bg-background/50 p-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-muted-foreground">#{substep.order}</span>
+                                <span className="text-xs text-foreground flex-1">{substep.title}</span>
+                                <select
+                                  value={substep.status}
+                                  onChange={(e) => handleSubstepStatusChange(substep, e.target.value as "pendente" | "em_andamento" | "concluido")}
+                                  className="input-field text-[11px] h-7 py-0 px-2 w-[132px]"
+                                  disabled={!can("stages_write")}
+                                >
+                                  <option value="pendente">Pendente</option>
+                                  <option value="em_andamento">Em andamento</option>
+                                  <option value="concluido">Concluído</option>
+                                </select>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  defaultValue={substep.order}
+                                  onBlur={(e) => handleSubstepOrderChange(substep, Number(e.target.value))}
+                                  className="input-field text-[11px] h-7 py-0 px-2 w-16"
+                                  disabled={!can("stages_write")}
+                                  title="Ordem"
+                                />
+                                {can("stages_write") && (
+                                  <button
+                                    onClick={() =>
+                                      setPendingDelete({
+                                        kind: "substep",
+                                        id: substep.id,
+                                        title: "Excluir subprocesso",
+                                        message: "Tem certeza que deseja excluir este subprocesso? Essa ação é permanente e não poderá ser desfeita.",
+                                      })
+                                    }
+                                    className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                                    title="Excluir subprocesso"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">Sem subprocessos nesta etapa.</p>
+                        )}
+
+                        {can("stages_write") && (
+                          <div className="flex items-center gap-2 pt-1">
+                            <input
+                              value={newSubstepTitles[stage.id] ?? ""}
+                              onChange={(e) => setNewSubstepTitle(stage.id, e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && handleAddSubstep(stage.id)}
+                              placeholder="Novo subprocesso..."
+                              className="input-field text-xs h-8"
+                            />
+                            <button
+                              onClick={() => handleAddSubstep(stage.id)}
+                              className="px-3 h-8 text-xs rounded-md border text-muted-foreground hover:text-foreground"
+                              disabled={!(newSubstepTitles[stage.id] ?? "").trim()}
+                            >
+                              Adicionar
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -275,14 +350,12 @@ const CaseDetail = () => {
                 <dl className="space-y-3 text-sm">
                   <div className="flex items-start gap-2">
                     <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <div><dt className="text-xs text-muted-foreground">Responsável</dt><dd className="text-foreground">{caseData.responsible}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">Responsável</dt><dd className="text-foreground">{caseData.responsible || "Não definido"}</dd></div>
                   </div>
-                  {caseData.team.length > 0 && (
-                    <div className="flex items-start gap-2">
-                      <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                      <div><dt className="text-xs text-muted-foreground">Equipe</dt><dd className="text-foreground">{caseData.team.join(", ")}</dd></div>
-                    </div>
-                  )}
+                  <div className="flex items-start gap-2">
+                    <Users className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div><dt className="text-xs text-muted-foreground">Equipe</dt><dd className="text-foreground">{caseData.team.length > 0 ? caseData.team.join(", ") : "Sem equipe adicional"}</dd></div>
+                  </div>
                   <div className="flex items-start gap-2">
                     <Calendar className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div><dt className="text-xs text-muted-foreground">Última atualização</dt><dd className="text-foreground">{caseData.lastUpdate}</dd></div>

@@ -1,28 +1,33 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import type { CaseDocument, CaseStage, CaseTask, CaseUpdate, CaseWithComputed, User } from "@/types";
+import type { CaseDocument, CaseStage, CaseStageSubstep, CaseTask, CaseUpdate, CaseWithComputed, User } from "@/types";
 import {
   activateCasePortalLinkRequest,
   createCaseStageRequest,
+  createStageSubstepRequest,
   createCaseTaskRequest,
   createCaseDocumentRequest,
   createCaseUpdateRequest,
   deleteCaseDocumentRequest,
   deleteCaseStageRequest,
+  deleteStageSubstepRequest,
   deleteCaseTaskRequest,
   deleteCaseUpdateRequest,
   getCaseDetailRequest,
   getCaseDocumentDownloadUrlRequest,
   getCasePortalLinkStatusRequest,
+  listStageSubstepsRequest,
   listCaseDocumentsRequest,
   listCaseStagesRequest,
   listCaseTasksRequest,
   listCaseUpdatesRequest,
   revokeCasePortalLinkRequest,
+  updateStageSubstepRequest,
   updateCaseStageRequest,
   updateCaseTaskRequest,
   type PortalLinkState,
   type StageDto,
+  type StageSubstepDto,
   type StaffDocument,
   type StaffUpdate,
   type TaskDto,
@@ -111,7 +116,27 @@ function mapStages(items: StageDto[]): CaseStage[] {
       description: item.description || "",
       visibleToClient: true,
       order: item.position,
+      substeps: [],
     }));
+}
+
+function mapSubsteps(items: StageSubstepDto[]): CaseStageSubstep[] {
+  return items
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((item) => ({
+      id: item.id,
+      stageId: item.stageId,
+      title: item.title,
+      order: item.position,
+      status: item.status === "DONE" ? "concluido" : item.status === "IN_PROGRESS" ? "em_andamento" : "pendente",
+    }));
+}
+
+function toBackendSubstepStatus(status: CaseStageSubstep["status"]): "PENDING" | "IN_PROGRESS" | "DONE" {
+  if (status === "concluido") return "DONE";
+  if (status === "em_andamento") return "IN_PROGRESS";
+  return "PENDING";
 }
 
 function mapTasks(items: TaskDto[]): CaseTask[] {
@@ -147,6 +172,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
   const [tick, setTick] = useState(0);
   const [newStageName, setNewStageName] = useState("");
   const [newStageDescription, setNewStageDescription] = useState("");
+  const [newSubstepTitles, setNewSubstepTitles] = useState<Record<string, string>>({});
   const [newTaskLabel, setNewTaskLabel] = useState("");
   const [newUpdateText, setNewUpdateText] = useState("");
   const [newDocName, setNewDocName] = useState("");
@@ -154,6 +180,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
   const [newDocStatus, setNewDocStatus] = useState<CaseDocument["status"]>("disponivel");
   const [newDocFile, setNewDocFile] = useState<File | null>(null);
   const [caseData, setCaseData] = useState<CaseWithComputed | null>(null);
+  const [stageSubsteps, setStageSubsteps] = useState<Record<string, CaseStageSubstep[]>>({});
   const [portalState, setPortalState] = useState<PortalLinkState | null>(null);
   const [generatedPortalUrl, setGeneratedPortalUrl] = useState<string | null>(null);
 
@@ -175,15 +202,30 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       listCaseDocumentsRequest(caseId),
       getCasePortalLinkStatusRequest(caseId),
     ])
-      .then(([detail, stages, tasks, updates, documents, portal]) => {
+      .then(async ([detail, stages, tasks, updates, documents, portal]) => {
         const mappedUpdates = mapUpdates(updates).map((item) => ({ ...item, caseId: detail.caseData.id }));
         const mappedDocuments = mapDocuments(documents, detail.caseData.id);
         const mappedStages = mapStages(stages);
+        const substepsByStageEntries = await Promise.all(
+          mappedStages.map(async (stage) => {
+            try {
+              const substeps = await listStageSubstepsRequest(stage.id);
+              return [stage.id, mapSubsteps(substeps)] as const;
+            } catch {
+              return [stage.id, []] as const;
+            }
+          }),
+        );
+        const substepsByStage = Object.fromEntries(substepsByStageEntries);
+        const stagesWithSubsteps = mappedStages.map((stage) => ({
+          ...stage,
+          substeps: substepsByStage[stage.id] ?? [],
+        }));
         const mappedTasks = mapTasks(tasks);
-        const computedProgress = progressFromStages(mappedStages);
+        const computedProgress = progressFromStages(stagesWithSubsteps);
         const pendingClient = mappedDocuments.filter((item) => item.visibility === "cliente" && item.status === "pendente").length;
         const currentStage = Math.max(
-          mappedStages.findIndex((stage) => stage.status === "em_andamento"),
+          stagesWithSubsteps.findIndex((stage) => stage.status === "em_andamento"),
           0,
         );
 
@@ -198,13 +240,14 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           portalExpiry: portal.expiresAt ? formatDate(portal.expiresAt) : undefined,
           lastUpdate: mappedUpdates[0]?.date ?? formatDate(detail.caseData.updatedAt),
           currentStage,
-          stages: mappedStages,
+          stages: stagesWithSubsteps,
           documents: mappedDocuments,
           updates: mappedUpdates,
           checklist: mappedTasks,
         };
 
         setCaseData(computed);
+        setStageSubsteps(substepsByStage);
         setPortalState(portal);
       })
       .catch((error) => {
@@ -254,6 +297,84 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar etapa.");
     }
   }, [can, caseData?.stages.length, caseId, newStageDescription, newStageName, refresh]);
+
+  const setNewSubstepTitle = useCallback((stageId: string, value: string) => {
+    setNewSubstepTitles((prev) => ({ ...prev, [stageId]: value }));
+  }, []);
+
+  const handleAddSubstep = useCallback(
+    async (stageId: string) => {
+      if (!can("stages_write")) return;
+      const title = (newSubstepTitles[stageId] ?? "").trim();
+      if (!title) return;
+      const nextPosition = (stageSubsteps[stageId]?.length ?? 0) + 1;
+      try {
+        await createStageSubstepRequest(stageId, {
+          title,
+          position: nextPosition,
+          status: "PENDING",
+          visibleToClient: false,
+        });
+        setNewSubstepTitles((prev) => ({ ...prev, [stageId]: "" }));
+        toast.success("Subprocesso adicionado");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao criar subprocesso.");
+      }
+    },
+    [can, newSubstepTitles, refresh, stageSubsteps],
+  );
+
+  const handleSubstepStatusChange = useCallback(
+    async (substep: CaseStageSubstep, status: CaseStageSubstep["status"]) => {
+      if (!can("stages_write")) return;
+      try {
+        await updateStageSubstepRequest(substep.id, {
+          title: substep.title,
+          position: substep.order,
+          status: toBackendSubstepStatus(status),
+          visibleToClient: false,
+        });
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao atualizar subprocesso.");
+      }
+    },
+    [can, refresh],
+  );
+
+  const handleSubstepOrderChange = useCallback(
+    async (substep: CaseStageSubstep, order: number) => {
+      if (!can("stages_write")) return;
+      if (!Number.isFinite(order) || order < 1) return;
+      try {
+        await updateStageSubstepRequest(substep.id, {
+          title: substep.title,
+          position: Math.floor(order),
+          status: toBackendSubstepStatus(substep.status),
+          visibleToClient: false,
+        });
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao reordenar subprocesso.");
+      }
+    },
+    [can, refresh],
+  );
+
+  const handleDeleteSubstep = useCallback(
+    async (substepId: string) => {
+      if (!can("stages_write")) return;
+      try {
+        await deleteStageSubstepRequest(substepId);
+        toast.success("Subprocesso excluido");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao excluir subprocesso.");
+      }
+    },
+    [can, refresh],
+  );
 
   const handleToggleTask = useCallback(
     async (taskId: string) => {
@@ -496,6 +617,8 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     setNewStageName,
     newStageDescription,
     setNewStageDescription,
+    newSubstepTitles,
+    setNewSubstepTitle,
     newTaskLabel,
     setNewTaskLabel,
     newUpdateText,
@@ -511,6 +634,10 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     portalLinks,
     activeLink,
     handleAddStage,
+    handleAddSubstep,
+    handleSubstepStatusChange,
+    handleSubstepOrderChange,
+    handleDeleteSubstep,
     handleStageClick,
     handleToggleTask,
     handleAddTask,

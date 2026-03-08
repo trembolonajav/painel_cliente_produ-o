@@ -9,6 +9,8 @@ import com.painel.api.common.NotFoundException;
 import com.painel.api.user.OfficeUser;
 import com.painel.api.user.OfficeUserRepository;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CaseWorkflowService {
 
     private final CaseStageRepository caseStageRepository;
+    private final CaseStageSubstepRepository caseStageSubstepRepository;
     private final CaseTaskRepository caseTaskRepository;
     private final CaseFileRepository caseFileRepository;
     private final OfficeUserRepository officeUserRepository;
@@ -27,12 +30,14 @@ public class CaseWorkflowService {
 
     public CaseWorkflowService(
             CaseStageRepository caseStageRepository,
+            CaseStageSubstepRepository caseStageSubstepRepository,
             CaseTaskRepository caseTaskRepository,
             CaseFileRepository caseFileRepository,
             OfficeUserRepository officeUserRepository,
             AuthorizationService authorizationService,
             AuditService auditService) {
         this.caseStageRepository = caseStageRepository;
+        this.caseStageSubstepRepository = caseStageSubstepRepository;
         this.caseTaskRepository = caseTaskRepository;
         this.caseFileRepository = caseFileRepository;
         this.officeUserRepository = officeUserRepository;
@@ -84,6 +89,78 @@ public class CaseWorkflowService {
                 "UPDATE",
                 Map.of("caseId", saved.getCaseFile().getId().toString(), "status", saved.getStatus().name()));
         return toStageResponse(saved);
+    }
+
+    @Transactional
+    public List<CaseStageSubstepResponse> listSubsteps(UUID stageId, OfficeUser actor) {
+        CaseStage stage = resolveStageById(stageId);
+        authorizationService.requireCaseReadAccess(actor, stage.getCaseFile().getId());
+        normalizeAndPersist(stageId);
+        return loadSortedSubsteps(stageId).stream()
+                .map(this::toSubstepResponse)
+                .toList();
+    }
+
+    @Transactional
+    public CaseStageSubstepResponse createSubstep(UUID stageId, CaseStageSubstepRequest request, OfficeUser actor) {
+        CaseStage stage = resolveStageById(stageId);
+        UUID caseId = stage.getCaseFile().getId();
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+
+        CaseStageSubstep substep = new CaseStageSubstep();
+        substep.setStage(stage);
+        substep.setTitle(request.title().trim());
+        substep.setStatus(request.status());
+        substep.setVisibleToClient(Boolean.TRUE.equals(request.visibleToClient()));
+
+        List<CaseStageSubstep> orderedSubsteps = loadSortedSubsteps(stageId);
+        orderedSubsteps.add(substep);
+        normalizePositions(orderedSubsteps);
+        CaseStageSubstep saved = saveAndGetSubstep(orderedSubsteps, substep);
+
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_STAGE_SUBSTEP",
+                saved.getId(),
+                "CREATE",
+                Map.of("caseId", caseId.toString(), "stageId", stageId.toString(), "title", saved.getTitle()));
+        return toSubstepResponse(saved);
+    }
+
+    @Transactional
+    public CaseStageSubstepResponse updateSubstep(UUID substepId, CaseStageSubstepRequest request, OfficeUser actor) {
+        CaseStageSubstep substep = caseStageSubstepRepository.findById(substepId)
+                .orElseThrow(() -> new NotFoundException("Subetapa nao encontrada"));
+        UUID stageId = substep.getStage().getId();
+        UUID caseId = substep.getStage().getCaseFile().getId();
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+
+        List<CaseStageSubstep> orderedSubsteps = loadSortedSubsteps(stageId);
+        CaseStageSubstep target = orderedSubsteps.stream()
+                .filter(item -> item.getId().equals(substepId))
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException("Subetapa nao encontrada"));
+
+        target.setTitle(request.title().trim());
+        target.setStatus(request.status());
+        target.setVisibleToClient(Boolean.TRUE.equals(request.visibleToClient()));
+
+        orderedSubsteps.remove(target);
+        int desiredIndex = Math.max(0, request.position() - 1);
+        int targetIndex = Math.min(desiredIndex, orderedSubsteps.size());
+        orderedSubsteps.add(targetIndex, target);
+        normalizePositions(orderedSubsteps);
+        CaseStageSubstep saved = saveAndGetSubstep(orderedSubsteps, target);
+
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_STAGE_SUBSTEP",
+                saved.getId(),
+                "UPDATE",
+                Map.of("caseId", caseId.toString(), "stageId", saved.getStage().getId().toString(), "status", saved.getStatus().name()));
+        return toSubstepResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -165,6 +242,24 @@ public class CaseWorkflowService {
                 Map.of("caseId", caseId.toString()));
     }
 
+    @Transactional
+    public void deleteSubstep(UUID substepId, OfficeUser actor) {
+        CaseStageSubstep substep = caseStageSubstepRepository.findById(substepId)
+                .orElseThrow(() -> new NotFoundException("Subetapa nao encontrada"));
+        UUID caseId = substep.getStage().getCaseFile().getId();
+        UUID stageId = substep.getStage().getId();
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        caseStageSubstepRepository.delete(substep);
+        normalizeAndPersist(stageId);
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "CASE_STAGE_SUBSTEP",
+                substepId,
+                "DELETE",
+                Map.of("caseId", caseId.toString(), "stageId", substep.getStage().getId().toString()));
+    }
+
     private CaseFile findCase(UUID caseId) {
         return caseFileRepository.findById(caseId)
                 .orElseThrow(() -> new NotFoundException("Caso nao encontrado"));
@@ -206,6 +301,11 @@ public class CaseWorkflowService {
         return stage;
     }
 
+    private CaseStage resolveStageById(UUID stageId) {
+        return caseStageRepository.findById(stageId)
+                .orElseThrow(() -> new NotFoundException("Etapa nao encontrada"));
+    }
+
     private OfficeUser resolveUser(UUID userId) {
         if (userId == null) {
             return null;
@@ -242,6 +342,47 @@ public class CaseWorkflowService {
                 task.getCreatedAt(),
                 task.getUpdatedAt(),
                 task.getCompletedAt());
+    }
+
+    private CaseStageSubstepResponse toSubstepResponse(CaseStageSubstep substep) {
+        return new CaseStageSubstepResponse(
+                substep.getId(),
+                substep.getStage().getId(),
+                substep.getTitle(),
+                substep.getPosition(),
+                substep.getStatus(),
+                substep.isVisibleToClient(),
+                substep.getCreatedAt(),
+                substep.getUpdatedAt());
+    }
+
+    private List<CaseStageSubstep> loadSortedSubsteps(UUID stageId) {
+        List<CaseStageSubstep> substeps = new ArrayList<>(caseStageSubstepRepository.findByStage_Id(stageId));
+        substeps.sort(Comparator
+                .comparingInt(CaseStageSubstep::getPosition)
+                .thenComparing(CaseStageSubstep::getCreatedAt)
+                .thenComparing(CaseStageSubstep::getId));
+        return substeps;
+    }
+
+    private void normalizePositions(List<CaseStageSubstep> substeps) {
+        for (int i = 0; i < substeps.size(); i++) {
+            substeps.get(i).setPosition(i + 1);
+        }
+    }
+
+    private CaseStageSubstep saveAndGetSubstep(List<CaseStageSubstep> substeps, CaseStageSubstep target) {
+        List<CaseStageSubstep> saved = caseStageSubstepRepository.saveAll(substeps);
+        return saved.stream()
+                .filter(item -> item.getId().equals(target.getId()))
+                .findFirst()
+                .orElse(target);
+    }
+
+    private void normalizeAndPersist(UUID stageId) {
+        List<CaseStageSubstep> substeps = loadSortedSubsteps(stageId);
+        normalizePositions(substeps);
+        caseStageSubstepRepository.saveAll(substeps);
     }
 
     private String trimToNull(String value) {
