@@ -1,4 +1,5 @@
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8080";
+const apiFromEnv = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "");
+const API_BASE_URL = apiFromEnv ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
 const AUTH_TOKEN_KEY = "api_auth_token";
 
 type RequestOptions = {
@@ -31,10 +32,16 @@ export function clearAuthToken(): void {
 }
 
 export function getApiBaseUrl(): string {
+  if (!API_BASE_URL) {
+    throw new Error("VITE_API_URL nao configurada para ambiente de producao.");
+  }
   return API_BASE_URL;
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  if (!API_BASE_URL) {
+    throw new Error("VITE_API_URL nao configurada para ambiente de producao.");
+  }
   const headers: Record<string, string> = { ...(options.headers ?? {}) };
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";

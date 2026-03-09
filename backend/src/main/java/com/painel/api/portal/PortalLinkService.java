@@ -147,7 +147,7 @@ public class PortalLinkService {
 
     private String trimTrailingSlash(String value) {
         if (value == null || value.isBlank()) {
-            return "http://localhost:5173";
+            throw new IllegalStateException("APP_FRONTEND_BASE_URL nao configurado");
         }
         String trimmed = value.trim();
         return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
