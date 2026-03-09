@@ -393,9 +393,9 @@ const Dashboard = () => {
                     </div>
 
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                      <span>{c.responsible}</span>
+                      <span>Responsável: <span className="text-foreground">{c.responsible || "Não definido"}</span></span>
                       <span className="hidden sm:inline">·</span>
-                      <span className="hidden sm:inline">Prioridade: {priorityLabel[c.priority]}</span>
+                      <span className="hidden sm:inline">Prioridade: <span className="text-foreground">{priorityLabel[c.priority]}</span></span>
                       {c.pendingClient > 0 && (
                         <span className="text-gold font-medium">
                           {c.pendingClient} pendência{c.pendingClient > 1 ? "s" : ""} do cliente
@@ -404,7 +404,7 @@ const Dashboard = () => {
                     </div>
 
                     <div className="flex items-center justify-between mt-3 pt-3 border-t text-xs text-muted-foreground">
-                      <span>Atualizado: {c.lastUpdate}</span>
+                      <span>Última atualização: {c.lastUpdate}</span>
                       <div className="flex items-center gap-1.5">
                         {c.portalActive ? (
                           <span className="flex items-center gap-1 text-gold">
@@ -455,3 +455,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+
