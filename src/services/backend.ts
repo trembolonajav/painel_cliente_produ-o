@@ -187,6 +187,7 @@ type ClientPortalStageResponse = {
   substeps?: {
     id: string;
     title: string;
+    description?: string;
     position: number;
     status: "PENDING" | "IN_PROGRESS" | "DONE";
     updatedAt: string;
@@ -996,6 +997,7 @@ export type ClientPortalStage = {
   substeps: {
     id: string;
     title: string;
+    description?: string;
     position: number;
     status: "pendente" | "em_andamento" | "concluido";
     updatedAt: string;
@@ -1072,6 +1074,7 @@ export async function listClientPortalStagesRequest(sessionToken?: string): Prom
         .map((substep) => ({
           id: substep.id,
           title: substep.title,
+          description: substep.description,
           position: substep.position,
           status: substep.status === "DONE" ? "concluido" : substep.status === "IN_PROGRESS" ? "em_andamento" : "pendente",
           updatedAt: substep.updatedAt,

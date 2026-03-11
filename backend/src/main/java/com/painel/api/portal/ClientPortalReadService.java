@@ -110,6 +110,7 @@ public class ClientPortalReadService {
                                 .map(substep -> new ClientPortalStageSubstepResponse(
                                         substep.getId(),
                                         substep.getTitle(),
+                                        substep.getDescription(),
                                         substep.getPosition(),
                                         substep.getStatus().name(),
                                         substep.getUpdatedAt()))

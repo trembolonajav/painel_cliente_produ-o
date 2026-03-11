@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  Circle,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -96,6 +98,7 @@ const ClientPortal = () => {
   const [docs, setDocs] = useState<ClientPortalDocument[]>([]);
   const [updates, setUpdates] = useState<StaffUpdate[]>([]);
   const [stages, setStages] = useState<ClientPortalStage[]>([]);
+  const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   const [patrimony, setPatrimony] = useState<ClientPortalPatrimony>(null);
   const [patrimonyOriginalDoc, setPatrimonyOriginalDoc] = useState<ClientPortalPatrimonyOriginalDocument | null>(null);
   const [currentStructurePage, setCurrentStructurePage] = useState(1);
@@ -283,6 +286,15 @@ const ClientPortal = () => {
     window.open(patrimonyOriginalDoc.url, "_blank", "noopener,noreferrer");
   };
 
+  const toggleExpand = (stageId: string) => {
+    setExpandedStages((prev) => {
+      const next = new Set(prev);
+      if (next.has(stageId)) next.delete(stageId);
+      else next.add(stageId);
+      return next;
+    });
+  };
+
   if (!session?.sessionToken) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-6">
@@ -428,44 +440,81 @@ const ClientPortal = () => {
                 {stages.map((stage, index, arr) => {
                   const isDone = stage.status === "concluido";
                   const isCurrent = stage.status === "em_andamento";
+                  const hasSubsteps = stage.substeps.length > 0;
+                  const isExpanded = expandedStages.has(stage.id);
+                  const completedSubsteps = stage.substeps.filter((substep) => substep.status === "concluido").length;
+
                   return (
-                    <div key={stage.id} className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                          isDone ? "bg-[hsl(152_55%_39%)] text-card" :
-                          isCurrent ? "bg-gold text-gold-foreground ring-4 ring-gold/20" :
-                          "bg-muted text-muted-foreground"
-                        }`}>
-                          {isDone ? <CheckCircle2 className="w-4 h-4" /> :
-                           isCurrent ? <Clock className="w-4 h-4" /> :
-                           <span className="text-xs font-medium">{index + 1}</span>}
-                        </div>
-                        {index < arr.length - 1 && (
-                          <div className={`w-px flex-1 my-1 min-h-[24px] ${isDone ? "bg-[hsl(152_55%_39%/0.3)]" : "bg-border"}`} />
-                        )}
-                      </div>
-                      <div className={`pb-6 flex-1 ${stage.status === "pendente" ? "opacity-50" : ""}`}>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h3 className={`font-medium text-sm ${isCurrent ? "text-gold" : "text-foreground"}`}>{stage.title}</h3>
-                          <span className={`text-[10px] font-medium ${isDone ? "text-[hsl(152_55%_39%)]" : stageColorClass(stage.status)}`}>
-                            {stageStatusLabel(stage.status)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground leading-relaxed">{stage.description || "Sem descricao"}</p>
-                        <p className="text-[11px] text-muted-foreground/60 mt-1">{formatShortDate(stage.updatedAt)}</p>
-                        {stage.substeps.length > 0 && (
-                          <div className="mt-2 ml-1 pl-3 border-l border-border/70 space-y-1.5">
-                            {stage.substeps.map((substep) => (
-                              <div key={substep.id} className="flex items-center justify-between gap-2 text-xs">
-                                <span className="text-foreground truncate">{substep.title}</span>
-                                <span className={`shrink-0 ${stageColorClass(substep.status)}`}>
-                                  {stageStatusLabel(substep.status)}
-                                </span>
-                              </div>
-                            ))}
+                    <div key={stage.id}>
+                      <div className="flex gap-4">
+                        <div className="flex flex-col items-center">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                            isDone ? "bg-[hsl(152_55%_39%)] text-card" :
+                            isCurrent ? "bg-gold text-gold-foreground ring-4 ring-gold/20" :
+                            "bg-muted text-muted-foreground"
+                          }`}>
+                            {isDone ? <CheckCircle2 className="w-4 h-4" /> :
+                             isCurrent ? <Clock className="w-4 h-4" /> :
+                             <span className="text-xs font-medium">{index + 1}</span>}
                           </div>
-                        )}
+                          {(index < arr.length - 1 || (hasSubsteps && isExpanded)) && (
+                            <div className={`w-px flex-1 my-1 min-h-[24px] ${isDone ? "bg-[hsl(152_55%_39%/0.3)]" : "bg-border"}`} />
+                          )}
+                        </div>
+                        <div className={`pb-4 flex-1 ${stage.status === "pendente" ? "opacity-50" : ""}`}>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <h3 className={`font-medium text-sm ${isCurrent ? "text-gold" : "text-foreground"}`}>{stage.title}</h3>
+                            {isDone && <span className="text-[10px] text-[hsl(152_55%_39%)] font-medium">✓ Concluído</span>}
+                            {isCurrent && <span className="text-[10px] text-gold font-medium">Em andamento</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{stage.description || "Sem descricao"}</p>
+                          <p className="text-[11px] text-muted-foreground/60 mt-1">{formatShortDate(stage.updatedAt)}</p>
+                          {hasSubsteps && (
+                            <button
+                              onClick={() => toggleExpand(stage.id)}
+                              className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-muted"
+                            >
+                              {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              <span>Ver {completedSubsteps}/{stage.substeps.length} sub-etapas</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
+
+                      {hasSubsteps && isExpanded && (
+                        <div className="ml-8 pl-4 border-l-2 border-dashed border-border/60 mb-3 space-y-2 animate-fade-in">
+                          {stage.substeps.map((substep) => {
+                            const subDone = substep.status === "concluido";
+                            const subCurrent = substep.status === "em_andamento";
+
+                            return (
+                              <div key={substep.id} className="flex gap-3 py-1.5">
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                  subDone ? "bg-[hsl(152_55%_39%)] text-card" :
+                                  subCurrent ? "bg-gold text-gold-foreground" :
+                                  "bg-muted text-muted-foreground"
+                                }`}>
+                                  {subDone ? <CheckCircle2 className="w-3 h-3" /> :
+                                   subCurrent ? <Clock className="w-3 h-3" /> :
+                                   <Circle className="w-3 h-3" />}
+                                </div>
+                                <div className={`flex-1 ${substep.status === "pendente" ? "opacity-50" : ""}`}>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className={`text-xs font-medium ${subCurrent ? "text-gold" : "text-foreground"}`}>
+                                      {substep.title}
+                                    </h4>
+                                    {subDone && <span className="text-[10px] text-[hsl(152_55%_39%)]">✓</span>}
+                                  </div>
+                                  {substep.description && (
+                                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{substep.description}</p>
+                                  )}
+                                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">{formatShortDate(substep.updatedAt)}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

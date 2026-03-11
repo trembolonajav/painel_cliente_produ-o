@@ -6,6 +6,7 @@ import java.util.UUID;
 public record ClientPortalStageSubstepResponse(
         UUID id,
         String title,
+        String description,
         int position,
         String status,
         OffsetDateTime updatedAt
