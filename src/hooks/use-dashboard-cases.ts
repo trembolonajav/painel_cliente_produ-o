@@ -7,6 +7,7 @@ import {
   listCaseDocumentsRequest,
   listCaseMembersRequest,
   listCaseStagesRequest,
+  listStageSubstepsRequest,
   listCasesRequest,
   listClientsRequest,
   listPartnersRequest,
@@ -37,12 +38,24 @@ const progressForStatus = (status: CaseWithComputed["status"]): number => {
   if (status === "concluido") return 100;
   if (status === "aguardando_cliente") return 60;
   if (status === "risco") return 40;
-  return 50;
+  return 0;
 };
 
-const progressFromStages = (totalStages: number, doneStages: number, fallbackStatus: CaseWithComputed["status"]): number => {
-  if (totalStages === 0) return progressForStatus(fallbackStatus);
-  return Math.round((doneStages / totalStages) * 100);
+const progressFromStages = (
+  stages: Array<{ status: "PENDING" | "ACTIVE" | "DONE"; substeps?: Array<{ status: "PENDING" | "IN_PROGRESS" | "DONE" }> }>,
+  fallbackStatus: CaseWithComputed["status"],
+): number => {
+  const totalUnits = stages.reduce((count, stage) => count + (stage.substeps?.length ? stage.substeps.length : 1), 0);
+  if (totalUnits === 0) return progressForStatus(fallbackStatus);
+
+  const completedUnits = stages.reduce((count, stage) => {
+    if (stage.substeps?.length) {
+      return count + stage.substeps.filter((substep) => substep.status === "DONE").length;
+    }
+    return count + (stage.status === "DONE" ? 1 : 0);
+  }, 0);
+
+  return Math.round((completedUnits / totalUnits) * 100);
 };
 
 const formatDate = (iso: string) =>
@@ -103,14 +116,20 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
             const team = members
               .filter((member) => member.permission !== "OWNER")
               .map((member) => member.userName);
-            const doneStages = stages.filter((stage) => stage.status === "DONE").length;
             const pendingClient = documents.filter((doc) => doc.visibility === "cliente" && doc.status === "pendente").length;
+            const stagesWithSubsteps = await Promise.all(
+              stages.map(async (stage) => ({
+                ...stage,
+                substeps: await listStageSubstepsRequest(stage.id)
+                  .catch(() => []),
+              })),
+            );
 
             return {
               caseId: item.id,
               responsible,
               team,
-              progress: progressFromStages(stages.length, doneStages, item.status),
+              progress: progressFromStages(stagesWithSubsteps, item.status),
               pendingClient,
               portalActive: portal?.status === "ACTIVE",
               portalExpiry: portal?.expiresAt ? formatDate(portal.expiresAt) : undefined,

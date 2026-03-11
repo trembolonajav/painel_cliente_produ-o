@@ -110,6 +110,7 @@ public class CaseWorkflowService {
         CaseStageSubstep substep = new CaseStageSubstep();
         substep.setStage(stage);
         substep.setTitle(request.title().trim());
+        substep.setDescription(normalizeDescription(request.description()));
         substep.setStatus(request.status());
         substep.setVisibleToClient(Boolean.TRUE.equals(request.visibleToClient()));
 
@@ -143,6 +144,7 @@ public class CaseWorkflowService {
                 .orElseThrow(() -> new NotFoundException("Subetapa nao encontrada"));
 
         target.setTitle(request.title().trim());
+        target.setDescription(normalizeDescription(request.description()));
         target.setStatus(request.status());
         target.setVisibleToClient(Boolean.TRUE.equals(request.visibleToClient()));
 
@@ -349,11 +351,20 @@ public class CaseWorkflowService {
                 substep.getId(),
                 substep.getStage().getId(),
                 substep.getTitle(),
+                substep.getDescription(),
                 substep.getPosition(),
                 substep.getStatus(),
                 substep.isVisibleToClient(),
                 substep.getCreatedAt(),
                 substep.getUpdatedAt());
+    }
+
+    private String normalizeDescription(String description) {
+        if (description == null) {
+            return null;
+        }
+        String trimmed = description.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private List<CaseStageSubstep> loadSortedSubsteps(UUID stageId) {

@@ -235,6 +235,7 @@ type CaseStageSubstepResponse = {
   id: string;
   stageId: string;
   title: string;
+  description?: string;
   position: number;
   status: "PENDING" | "IN_PROGRESS" | "DONE";
   visibleToClient: boolean;
@@ -776,6 +777,7 @@ export type StageSubstepDto = {
   id: string;
   stageId: string;
   title: string;
+  description?: string;
   position: number;
   status: "PENDING" | "IN_PROGRESS" | "DONE";
   visibleToClient: boolean;
@@ -1227,6 +1229,7 @@ export async function listStageSubstepsRequest(stageId: string): Promise<StageSu
       id: item.id,
       stageId: item.stageId,
       title: item.title,
+      description: item.description,
       position: item.position,
       status: item.status,
       visibleToClient: item.visibleToClient,
@@ -1239,6 +1242,7 @@ export async function createStageSubstepRequest(
   stageId: string,
   payload: {
     title: string;
+    description?: string;
     position: number;
     status: "PENDING" | "IN_PROGRESS" | "DONE";
     visibleToClient?: boolean;
@@ -1253,6 +1257,7 @@ export async function createStageSubstepRequest(
     id: item.id,
     stageId: item.stageId,
     title: item.title,
+    description: item.description,
     position: item.position,
     status: item.status,
     visibleToClient: item.visibleToClient,
@@ -1265,6 +1270,7 @@ export async function updateStageSubstepRequest(
   substepId: string,
   payload: {
     title: string;
+    description?: string;
     position: number;
     status: "PENDING" | "IN_PROGRESS" | "DONE";
     visibleToClient?: boolean;
@@ -1279,6 +1285,7 @@ export async function updateStageSubstepRequest(
     id: item.id,
     stageId: item.stageId,
     title: item.title,
+    description: item.description,
     position: item.position,
     status: item.status,
     visibleToClient: item.visibleToClient,

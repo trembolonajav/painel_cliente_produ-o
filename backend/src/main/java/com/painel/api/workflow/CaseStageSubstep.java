@@ -28,6 +28,9 @@ public class CaseStageSubstep {
     @Column(nullable = false, length = 180)
     private String title;
 
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
     @Column(nullable = false)
     private int position;
 
@@ -64,6 +67,8 @@ public class CaseStageSubstep {
     public void setStage(CaseStage stage) { this.stage = stage; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public int getPosition() { return position; }
     public void setPosition(int position) { this.position = position; }
     public CaseStageSubstepStatus getStatus() { return status; }

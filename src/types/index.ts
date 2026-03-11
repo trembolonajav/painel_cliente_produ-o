@@ -68,6 +68,8 @@ export interface CaseStageSubstep {
   id: string;
   stageId: string;
   title: string;
+  description?: string;
+  date?: string;
   status: StageSubstepStatus;
   order: number;
   visibleToClient: boolean;

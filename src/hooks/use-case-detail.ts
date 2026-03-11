@@ -25,6 +25,7 @@ import {
   updateStageSubstepRequest,
   updateCaseStageRequest,
   updateCaseTaskRequest,
+  type CaseMemberResponse,
   type PortalLinkState,
   type StageDto,
   type StageSubstepDto,
@@ -70,13 +71,21 @@ function progressFromStatus(status: CaseWithComputed["status"]): number {
   if (status === "concluido") return 100;
   if (status === "aguardando_cliente") return 60;
   if (status === "risco") return 40;
-  return 50;
+  return 0;
 }
 
 function progressFromStages(stages: CaseStage[]): number | null {
-  if (stages.length === 0) return null;
-  const done = stages.filter((stage) => stage.status === "concluido").length;
-  return Math.round((done / stages.length) * 100);
+  const totalUnits = stages.reduce((count, stage) => count + (stage.substeps?.length ? stage.substeps.length : 1), 0);
+  if (totalUnits === 0) return null;
+
+  const completedUnits = stages.reduce((count, stage) => {
+    if (stage.substeps?.length) {
+      return count + stage.substeps.filter((substep) => substep.status === "concluido").length;
+    }
+    return count + (stage.status === "concluido" ? 1 : 0);
+  }, 0);
+
+  return Math.round((completedUnits / totalUnits) * 100);
 }
 
 function mapUpdates(items: StaffUpdate[]): CaseUpdate[] {
@@ -128,6 +137,8 @@ function mapSubsteps(items: StageSubstepDto[]): CaseStageSubstep[] {
       id: item.id,
       stageId: item.stageId,
       title: item.title,
+      description: item.description || "",
+      date: item.status === "PENDING" ? undefined : formatDate(item.updatedAt),
       order: item.position,
       status: item.status === "DONE" ? "concluido" : item.status === "IN_PROGRESS" ? "em_andamento" : "pendente",
       visibleToClient: item.visibleToClient,
@@ -174,6 +185,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
   const [newStageName, setNewStageName] = useState("");
   const [newStageDescription, setNewStageDescription] = useState("");
   const [newSubstepTitles, setNewSubstepTitles] = useState<Record<string, string>>({});
+  const [newSubstepDescriptions, setNewSubstepDescriptions] = useState<Record<string, string>>({});
   const [newTaskLabel, setNewTaskLabel] = useState("");
   const [newUpdateText, setNewUpdateText] = useState("");
   const [newDocName, setNewDocName] = useState("");
@@ -181,15 +193,18 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
   const [newDocStatus, setNewDocStatus] = useState<CaseDocument["status"]>("disponivel");
   const [newDocFile, setNewDocFile] = useState<File | null>(null);
   const [caseData, setCaseData] = useState<CaseWithComputed | null>(null);
+  const [caseMembers, setCaseMembers] = useState<CaseMemberResponse[]>([]);
   const [stageSubsteps, setStageSubsteps] = useState<Record<string, CaseStageSubstep[]>>({});
   const [portalState, setPortalState] = useState<PortalLinkState | null>(null);
   const [generatedPortalUrl, setGeneratedPortalUrl] = useState<string | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     if (!caseId || !user) {
       setCaseData(null);
+      setCaseMembers([]);
       setLoading(false);
       return;
     }
@@ -248,18 +263,26 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
         };
 
         setCaseData(computed);
+        setCaseMembers(detail.members);
         setStageSubsteps(substepsByStage);
         setPortalState(portal);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "Falha ao carregar detalhes do caso.");
         setCaseData(null);
+        setCaseMembers([]);
       })
       .finally(() => setLoading(false));
   }, [caseId, tick, user]);
 
   const portalLinks = useMemo(() => mapPortal(portalState), [portalState]);
   const activeLink = useMemo(() => portalLinks.find((l) => l.active), [portalLinks]);
+  const canReorderStages = useMemo(() => {
+    if (!user || !can("stages_write")) return false;
+    if (user.role === "administrador") return true;
+    const currentMember = caseMembers.find((member) => member.userId === user.id);
+    return currentMember?.permission === "OWNER" || currentMember?.permission === "EDITOR";
+  }, [can, caseMembers, user]);
 
   const handleStageClick = useCallback(
     async (stage: CaseStage) => {
@@ -303,27 +326,34 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     setNewSubstepTitles((prev) => ({ ...prev, [stageId]: value }));
   }, []);
 
+  const setNewSubstepDescription = useCallback((stageId: string, value: string) => {
+    setNewSubstepDescriptions((prev) => ({ ...prev, [stageId]: value }));
+  }, []);
+
   const handleAddSubstep = useCallback(
     async (stageId: string) => {
       if (!can("stages_write")) return;
       const title = (newSubstepTitles[stageId] ?? "").trim();
+      const description = (newSubstepDescriptions[stageId] ?? "").trim();
       if (!title) return;
       const nextPosition = (stageSubsteps[stageId]?.length ?? 0) + 1;
       try {
         await createStageSubstepRequest(stageId, {
           title,
+          description: description || undefined,
           position: nextPosition,
           status: "PENDING",
           visibleToClient: false,
         });
         setNewSubstepTitles((prev) => ({ ...prev, [stageId]: "" }));
+        setNewSubstepDescriptions((prev) => ({ ...prev, [stageId]: "" }));
         toast.success("Subprocesso adicionado");
         refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao criar subprocesso.");
       }
     },
-    [can, newSubstepTitles, refresh, stageSubsteps],
+    [can, newSubstepDescriptions, newSubstepTitles, refresh, stageSubsteps],
   );
 
   const handleSubstepStatusChange = useCallback(
@@ -332,6 +362,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await updateStageSubstepRequest(substep.id, {
           title: substep.title,
+          description: substep.description || undefined,
           position: substep.order,
           status: toBackendSubstepStatus(status),
           visibleToClient: substep.visibleToClient,
@@ -344,6 +375,42 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     [can, refresh],
   );
 
+  const handleStageReorder = useCallback(
+    async (stage: CaseStage, direction: "up" | "down") => {
+      if (!canReorderStages || !caseData || isReordering) return;
+      const stages = caseData.stages.slice().sort((a, b) => a.order - b.order);
+      const currentIndex = stages.findIndex((item) => item.id === stage.id);
+      if (currentIndex < 0) return;
+
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= stages.length) return;
+
+      const swapStage = stages[targetIndex];
+
+      try {
+        setIsReordering(true);
+        await updateCaseStageRequest(swapStage.id, {
+          title: swapStage.name,
+          description: swapStage.description,
+          position: stage.order,
+          status: swapStage.status === "concluido" ? "DONE" : swapStage.status === "em_andamento" ? "ACTIVE" : "PENDING",
+        });
+        await updateCaseStageRequest(stage.id, {
+          title: stage.name,
+          description: stage.description,
+          position: swapStage.order,
+          status: stage.status === "concluido" ? "DONE" : stage.status === "em_andamento" ? "ACTIVE" : "PENDING",
+        });
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao reordenar etapa.");
+      } finally {
+        setIsReordering(false);
+      }
+    },
+    [canReorderStages, caseData, isReordering, refresh],
+  );
+
   const handleSubstepOrderChange = useCallback(
     async (substep: CaseStageSubstep, order: number) => {
       if (!can("stages_write")) return;
@@ -351,6 +418,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await updateStageSubstepRequest(substep.id, {
           title: substep.title,
+          description: substep.description || undefined,
           position: Math.floor(order),
           status: toBackendSubstepStatus(substep.status),
           visibleToClient: substep.visibleToClient,
@@ -363,12 +431,47 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     [can, refresh],
   );
 
+  const handleSubstepReorder = useCallback(
+    async (stageId: string, substep: CaseStageSubstep, direction: "up" | "down") => {
+      if (!canReorderStages || !caseData || isReordering) return;
+      const stage = caseData.stages.find((item) => item.id === stageId);
+      if (!stage?.substeps?.length) return;
+
+      const substeps = stage.substeps.slice().sort((a, b) => a.order - b.order);
+      const currentIndex = substeps.findIndex((item) => item.id === substep.id);
+      if (currentIndex < 0) return;
+
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= substeps.length) return;
+
+      const swapSubstep = substeps[targetIndex];
+
+      try {
+        setIsReordering(true);
+        await updateStageSubstepRequest(substep.id, {
+          title: substep.title,
+          description: substep.description || undefined,
+          position: swapSubstep.order,
+          status: toBackendSubstepStatus(substep.status),
+          visibleToClient: substep.visibleToClient,
+        });
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao reordenar subprocesso.");
+      } finally {
+        setIsReordering(false);
+      }
+    },
+    [canReorderStages, caseData, isReordering, refresh],
+  );
+
   const handleSubstepVisibilityChange = useCallback(
     async (substep: CaseStageSubstep, visibleToClient: boolean) => {
       if (!can("stages_write")) return;
       try {
         await updateStageSubstepRequest(substep.id, {
           title: substep.title,
+          description: substep.description || undefined,
           position: substep.order,
           status: toBackendSubstepStatus(substep.status),
           visibleToClient,
@@ -378,6 +481,41 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao atualizar visibilidade do subprocesso.");
       }
+    },
+    [can, refresh],
+  );
+
+  const handleSubstepDescriptionChange = useCallback(
+    async (substep: CaseStageSubstep, description: string) => {
+      if (!can("stages_write")) return;
+      try {
+        await updateStageSubstepRequest(substep.id, {
+          title: substep.title,
+          description: description.trim() || undefined,
+          position: substep.order,
+          status: toBackendSubstepStatus(substep.status),
+          visibleToClient: substep.visibleToClient,
+        });
+        toast.success("Descrição da subetapa atualizada");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao atualizar descrição da subetapa.");
+      }
+    },
+    [can, refresh],
+  );
+
+  const handleSubstepUpdate = useCallback(
+    async (substep: CaseStageSubstep, payload: { title: string; description: string; visibleToClient: boolean }) => {
+      if (!can("stages_write")) return;
+      await updateStageSubstepRequest(substep.id, {
+        title: payload.title.trim(),
+        description: payload.description.trim() || undefined,
+        position: substep.order,
+        status: toBackendSubstepStatus(substep.status),
+        visibleToClient: payload.visibleToClient,
+      });
+      refresh();
     },
     [can, refresh],
   );
@@ -521,10 +659,10 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       if (!caseId || !can("cases_write")) return;
       try {
         await deleteCaseUpdateRequest(caseId, updateId);
-        toast.success("Atualizacao excluida");
+        toast.success("Atualização excluída");
         refresh();
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Falha ao excluir atualizacao.");
+        toast.error(error instanceof Error ? error.message : "Falha ao excluir atualização.");
       }
     },
     [can, caseId, refresh],
@@ -639,6 +777,8 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     setNewStageDescription,
     newSubstepTitles,
     setNewSubstepTitle,
+    newSubstepDescriptions,
+    setNewSubstepDescription,
     newTaskLabel,
     setNewTaskLabel,
     newUpdateText,
@@ -653,13 +793,19 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     caseData,
     portalLinks,
     activeLink,
+    canReorderStages,
+    isReordering,
     handleAddStage,
     handleAddSubstep,
     handleSubstepStatusChange,
     handleSubstepOrderChange,
+    handleSubstepReorder,
+    handleSubstepDescriptionChange,
+    handleSubstepUpdate,
     handleSubstepVisibilityChange,
     handleDeleteSubstep,
     handleStageClick,
+    handleStageReorder,
     handleToggleTask,
     handleAddTask,
     handleAddUpdate,

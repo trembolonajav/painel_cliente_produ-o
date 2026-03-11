@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Size;
 
 public record CaseStageSubstepRequest(
         @NotBlank @Size(max = 180) String title,
+        String description,
         @NotNull Integer position,
         @NotNull CaseStageSubstepStatus status,
         Boolean visibleToClient

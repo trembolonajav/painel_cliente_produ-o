@@ -7,6 +7,7 @@ public record CaseStageSubstepResponse(
         UUID id,
         UUID stageId,
         String title,
+        String description,
         int position,
         CaseStageSubstepStatus status,
         boolean visibleToClient,
