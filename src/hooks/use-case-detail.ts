@@ -130,6 +130,7 @@ function mapSubsteps(items: StageSubstepDto[]): CaseStageSubstep[] {
       title: item.title,
       order: item.position,
       status: item.status === "DONE" ? "concluido" : item.status === "IN_PROGRESS" ? "em_andamento" : "pendente",
+      visibleToClient: item.visibleToClient,
     }));
 }
 
@@ -333,7 +334,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           title: substep.title,
           position: substep.order,
           status: toBackendSubstepStatus(status),
-          visibleToClient: false,
+          visibleToClient: substep.visibleToClient,
         });
         refresh();
       } catch (error) {
@@ -352,11 +353,30 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           title: substep.title,
           position: Math.floor(order),
           status: toBackendSubstepStatus(substep.status),
-          visibleToClient: false,
+          visibleToClient: substep.visibleToClient,
         });
         refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao reordenar subprocesso.");
+      }
+    },
+    [can, refresh],
+  );
+
+  const handleSubstepVisibilityChange = useCallback(
+    async (substep: CaseStageSubstep, visibleToClient: boolean) => {
+      if (!can("stages_write")) return;
+      try {
+        await updateStageSubstepRequest(substep.id, {
+          title: substep.title,
+          position: substep.order,
+          status: toBackendSubstepStatus(substep.status),
+          visibleToClient,
+        });
+        toast.success("Visibilidade do subprocesso atualizada");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao atualizar visibilidade do subprocesso.");
       }
     },
     [can, refresh],
@@ -637,6 +657,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     handleAddSubstep,
     handleSubstepStatusChange,
     handleSubstepOrderChange,
+    handleSubstepVisibilityChange,
     handleDeleteSubstep,
     handleStageClick,
     handleToggleTask,

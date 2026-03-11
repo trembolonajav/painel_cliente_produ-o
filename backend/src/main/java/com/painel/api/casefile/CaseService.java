@@ -6,6 +6,8 @@ import com.painel.api.audit.AuditService;
 import com.painel.api.client.Client;
 import com.painel.api.client.ClientRepository;
 import com.painel.api.common.NotFoundException;
+import com.painel.api.partner.Partner;
+import com.painel.api.partner.PartnerRepository;
 import com.painel.api.user.OfficeRole;
 import com.painel.api.user.OfficeUser;
 import com.painel.api.user.OfficeUserRepository;
@@ -22,6 +24,7 @@ public class CaseService {
     private final CaseFileRepository caseFileRepository;
     private final CaseMemberRepository caseMemberRepository;
     private final ClientRepository clientRepository;
+    private final PartnerRepository partnerRepository;
     private final OfficeUserRepository officeUserRepository;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
@@ -30,12 +33,14 @@ public class CaseService {
             CaseFileRepository caseFileRepository,
             CaseMemberRepository caseMemberRepository,
             ClientRepository clientRepository,
+            PartnerRepository partnerRepository,
             OfficeUserRepository officeUserRepository,
             AuthorizationService authorizationService,
             AuditService auditService) {
         this.caseFileRepository = caseFileRepository;
         this.caseMemberRepository = caseMemberRepository;
         this.clientRepository = clientRepository;
+        this.partnerRepository = partnerRepository;
         this.officeUserRepository = officeUserRepository;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
@@ -71,9 +76,11 @@ public class CaseService {
         authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR);
         Client client = clientRepository.findById(request.clientId())
                 .orElseThrow(() -> new NotFoundException("Cliente nao encontrado"));
+        Partner partner = resolvePartner(request.partnerId());
 
         CaseFile caseFile = new CaseFile();
         caseFile.setClient(client);
+        caseFile.setPartner(partner);
         caseFile.setCreatedBy(actor);
         apply(caseFile, request);
         CaseFile saved = caseFileRepository.save(caseFile);
@@ -92,6 +99,7 @@ public class CaseService {
                 Map.of(
                         "title", saved.getTitle(),
                         "clientId", saved.getClient().getId().toString(),
+                        "partnerId", saved.getPartner() != null ? saved.getPartner().getId().toString() : "",
                         "responsibleUserId", responsible.getId().toString()));
         return toResponse(saved);
     }
@@ -102,8 +110,10 @@ public class CaseService {
         CaseFile caseFile = findCase(caseId);
         Client client = clientRepository.findById(request.clientId())
                 .orElseThrow(() -> new NotFoundException("Cliente nao encontrado"));
+        Partner partner = resolvePartner(request.partnerId());
 
         caseFile.setClient(client);
+        caseFile.setPartner(partner);
         apply(caseFile, request);
         CaseFile saved = caseFileRepository.save(caseFile);
         if (request.responsibleUserId() != null) {
@@ -218,6 +228,8 @@ public class CaseService {
                 caseFile.getId(),
                 caseFile.getClient().getId(),
                 caseFile.getClient().getName(),
+                caseFile.getPartner() != null ? caseFile.getPartner().getId() : null,
+                caseFile.getPartner() != null ? caseFile.getPartner().getName() : null,
                 caseFile.getTitle(),
                 caseFile.getCaseNumber(),
                 caseFile.getArea(),
@@ -235,5 +247,13 @@ public class CaseService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private Partner resolvePartner(UUID partnerId) {
+        if (partnerId == null) {
+            return null;
+        }
+        return partnerRepository.findById(partnerId)
+                .orElseThrow(() -> new NotFoundException("Parceiro nao encontrado"));
     }
 }

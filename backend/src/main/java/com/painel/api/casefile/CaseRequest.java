@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record CaseRequest(
         @NotNull UUID clientId,
+        UUID partnerId,
         @NotBlank @Size(max = 200) String title,
         @Size(max = 100) String caseNumber,
         @Size(max = 80) String area,

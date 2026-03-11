@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink,
   FileText, Copy, Bell, RefreshCw, Download, Eye, Plus,
-  CircleDot, Circle, Check, User, Users, Calendar, Trash2
+  CircleDot, Circle, Check, User, Users, Calendar, Trash2, Handshake
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import type { CaseWithComputed, CaseStage } from "@/types";
@@ -81,6 +81,7 @@ const CaseDetail = () => {
     handleAddSubstep,
     handleSubstepStatusChange,
     handleSubstepOrderChange,
+    handleSubstepVisibilityChange,
     handleDeleteSubstep,
     handleStageClick,
     handleToggleTask,
@@ -293,6 +294,16 @@ const CaseDetail = () => {
                                   disabled={!can("stages_write")}
                                   title="Ordem"
                                 />
+                                <label className="flex items-center gap-1 text-[11px] text-muted-foreground whitespace-nowrap">
+                                  <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 accent-gold"
+                                    checked={substep.visibleToClient}
+                                    onChange={(e) => handleSubstepVisibilityChange(substep, e.target.checked)}
+                                    disabled={!can("stages_write")}
+                                  />
+                                  Visivel ao cliente
+                                </label>
                                 {can("stages_write") && (
                                   <button
                                     onClick={() =>
@@ -357,6 +368,10 @@ const CaseDetail = () => {
                   <div className="flex items-start gap-2">
                     <Users className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div><dt className="text-xs text-muted-foreground">Equipe</dt><dd className="text-foreground">{caseData.team.length > 0 ? caseData.team.join(", ") : "Sem equipe adicional"}</dd></div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Handshake className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div><dt className="text-xs text-muted-foreground">Parceiro</dt><dd className="text-foreground">{caseData.partnerName || "Sem parceiro vinculado"}</dd></div>
                   </div>
                   <div className="flex items-start gap-2">
                     <Calendar className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />

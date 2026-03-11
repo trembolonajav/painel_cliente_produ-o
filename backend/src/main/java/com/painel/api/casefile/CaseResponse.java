@@ -7,6 +7,8 @@ public record CaseResponse(
         UUID id,
         UUID clientId,
         String clientName,
+        UUID partnerId,
+        String partnerName,
         String title,
         String caseNumber,
         String area,

@@ -14,6 +14,7 @@ import com.painel.api.storage.StorageService;
 import com.painel.api.updates.CaseUpdateRepository;
 import com.painel.api.updates.CaseUpdateResponse;
 import com.painel.api.workflow.CaseStageRepository;
+import com.painel.api.workflow.CaseStageSubstepRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +28,7 @@ public class ClientPortalReadService {
     private final CaseUpdateRepository caseUpdateRepository;
     private final DocumentRepository documentRepository;
     private final CaseStageRepository caseStageRepository;
+    private final CaseStageSubstepRepository caseStageSubstepRepository;
     private final PatrimonyStructureRepository patrimonyStructureRepository;
     private final PatrimonyNodeRepository patrimonyNodeRepository;
     private final StorageService storageService;
@@ -36,6 +38,7 @@ public class ClientPortalReadService {
             CaseUpdateRepository caseUpdateRepository,
             DocumentRepository documentRepository,
             CaseStageRepository caseStageRepository,
+            CaseStageSubstepRepository caseStageSubstepRepository,
             PatrimonyStructureRepository patrimonyStructureRepository,
             PatrimonyNodeRepository patrimonyNodeRepository,
             StorageService storageService) {
@@ -43,6 +46,7 @@ public class ClientPortalReadService {
         this.caseUpdateRepository = caseUpdateRepository;
         this.documentRepository = documentRepository;
         this.caseStageRepository = caseStageRepository;
+        this.caseStageSubstepRepository = caseStageSubstepRepository;
         this.patrimonyStructureRepository = patrimonyStructureRepository;
         this.patrimonyNodeRepository = patrimonyNodeRepository;
         this.storageService = storageService;
@@ -100,7 +104,16 @@ public class ClientPortalReadService {
                         stage.getDescription(),
                         stage.getPosition(),
                         stage.getStatus().name(),
-                        stage.getUpdatedAt()))
+                        stage.getUpdatedAt(),
+                        caseStageSubstepRepository.findByStage_IdOrderByPositionAsc(stage.getId()).stream()
+                                .filter(substep -> substep.isVisibleToClient())
+                                .map(substep -> new ClientPortalStageSubstepResponse(
+                                        substep.getId(),
+                                        substep.getTitle(),
+                                        substep.getPosition(),
+                                        substep.getStatus().name(),
+                                        substep.getUpdatedAt()))
+                                .toList()))
                 .toList();
     }
 

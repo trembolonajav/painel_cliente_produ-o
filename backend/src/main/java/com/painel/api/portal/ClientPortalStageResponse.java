@@ -1,6 +1,7 @@
 package com.painel.api.portal;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record ClientPortalStageResponse(
@@ -9,6 +10,7 @@ public record ClientPortalStageResponse(
         String description,
         int position,
         String status,
-        OffsetDateTime updatedAt
+        OffsetDateTime updatedAt,
+        List<ClientPortalStageSubstepResponse> substeps
 ) {
 }

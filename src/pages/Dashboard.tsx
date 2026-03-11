@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import {
-  Briefcase, Users, FileText, Settings, LogOut, Search, Plus, ChevronRight, Trash2, Shield,
-  Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink, Eye
+  Briefcase, Users, LogOut, Search, Plus, ChevronRight, Trash2, Shield,
+  Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink, Handshake
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -60,12 +60,15 @@ const Dashboard = () => {
     setNewCaseTitle,
     newCaseClientId,
     setNewCaseClientId,
+    newCasePartnerId,
+    setNewCasePartnerId,
     newCasePriority,
     setNewCasePriority,
     newCaseResponsible,
     setNewCaseResponsible,
     newCaseDocs,
     clients,
+    partners,
     users,
     handleCreateCase,
     handleCreateDialogOpenChange,
@@ -113,14 +116,9 @@ const Dashboard = () => {
               <Shield className="w-4 h-4" /> Usuários
             </button>
           )}
-          <button className="sidebar-link w-full">
-            <FileText className="w-4 h-4" /> Documentos
+          <button onClick={() => navigate("/admin/parceiros")} className="sidebar-link w-full">
+            <Handshake className="w-4 h-4" /> Parceiros
           </button>
-          {can("settings_manage") && (
-            <button className="sidebar-link w-full">
-              <Settings className="w-4 h-4" /> Configurações
-            </button>
-          )}
         </nav>
 
         <div className="p-3 border-t border-sidebar-border">
@@ -142,12 +140,6 @@ const Dashboard = () => {
             <p className="text-sm text-muted-foreground">Gerencie e acompanhe todas as demandas do escritório</p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/portal/verificar/abr-portal-mendes-2026")}
-              className="hidden sm:flex items-center gap-2 px-3 py-2 text-sm border rounded-lg text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
-            >
-              <Eye className="w-4 h-4" /> Preview Portal
-            </button>
             {can("cases_write") && (
               <Dialog
                 open={isCreateDialogOpen}
@@ -198,6 +190,22 @@ const Dashboard = () => {
                           <SelectItem value="alta">Alta</SelectItem>
                           <SelectItem value="media">Média</SelectItem>
                           <SelectItem value="baixa">Baixa</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-case-partner">Parceiro</Label>
+                      <Select value={newCasePartnerId || "none"} onValueChange={(value) => setNewCasePartnerId(value === "none" ? "" : value)}>
+                        <SelectTrigger id="new-case-partner">
+                          <SelectValue placeholder="Selecione um parceiro" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Sem parceiro</SelectItem>
+                          {partners.map((partner) => (
+                            <SelectItem key={partner.id} value={partner.id}>
+                              {partner.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

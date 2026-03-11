@@ -10,11 +10,13 @@ import com.painel.api.user.OfficeUser;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ClientService {
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final ClientRepository clientRepository;
     private final CaseFileRepository caseFileRepository;
@@ -98,11 +100,19 @@ public class ClientService {
     }
 
     private void apply(Client client, ClientRequest request) {
-        client.setName(request.name().trim());
+        String normalizedName = trimToNull(request.name());
+        if (normalizedName == null) {
+            throw new IllegalArgumentException("Nome e obrigatorio.");
+        }
+        String cpfLast3 = normalizeCpfLast3(request.cpfLast3());
+        String normalizedEmail = normalizeEmail(request.email());
+        String normalizedPhone = normalizePhone(request.phone());
+
+        client.setName(normalizedName);
         client.setCpfEncrypted(trimToNull(request.cpfEncrypted()));
-        client.setCpfLast3(trimToNull(request.cpfLast3()));
-        client.setEmail(trimToNull(request.email()));
-        client.setPhone(trimToNull(request.phone()));
+        client.setCpfLast3(cpfLast3);
+        client.setEmail(normalizedEmail);
+        client.setPhone(normalizedPhone);
         client.setNotes(trimToNull(request.notes()));
     }
 
@@ -120,6 +130,37 @@ public class ClientService {
 
     private String normalizeFilter(String value) {
         return trimToNull(value);
+    }
+
+    private String normalizeCpfLast3(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null || !normalized.matches("^\\d{3}$")) {
+            throw new IllegalArgumentException("Ultimos 3 digitos do CPF/CNPJ devem ter exatamente 3 numeros.");
+        }
+        return normalized;
+    }
+
+    private String normalizeEmail(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (!EMAIL_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("E-mail invalido.");
+        }
+        return normalized;
+    }
+
+    private String normalizePhone(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        String digits = normalized.replaceAll("\\D", "");
+        if (digits.length() != 10 && digits.length() != 11) {
+            throw new IllegalArgumentException("Telefone deve conter 10 ou 11 digitos.");
+        }
+        return digits;
     }
 
     private String trimToNull(String value) {

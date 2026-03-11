@@ -1,7 +1,17 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { CaseDocument, CaseWithComputed, User } from "@/types";
-import { createCaseRequest, listCasesRequest, listClientsRequest, listUsersRequest } from "@/services/backend";
+import {
+  createCaseRequest,
+  getCasePortalLinkStatusRequest,
+  listCaseDocumentsRequest,
+  listCaseMembersRequest,
+  listCaseStagesRequest,
+  listCasesRequest,
+  listClientsRequest,
+  listPartnersRequest,
+  listUsersRequest,
+} from "@/services/backend";
 import { generateId } from "@/lib/id";
 
 type NewCaseDocInput = {
@@ -30,6 +40,14 @@ const progressForStatus = (status: CaseWithComputed["status"]): number => {
   return 50;
 };
 
+const progressFromStages = (totalStages: number, doneStages: number, fallbackStatus: CaseWithComputed["status"]): number => {
+  if (totalStages === 0) return progressForStatus(fallbackStatus);
+  return Math.round((doneStages / totalStages) * 100);
+};
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+
 export function useDashboardCases({ user }: UseDashboardCasesParams) {
   const [filter, setFilter] = useState("todos");
   const [searchQuery, setSearchQuery] = useState("");
@@ -37,22 +55,25 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newCaseTitle, setNewCaseTitle] = useState("");
   const [newCaseClientId, setNewCaseClientId] = useState("");
+  const [newCasePartnerId, setNewCasePartnerId] = useState("");
   const [newCasePriority, setNewCasePriority] = useState<CaseWithComputed["priority"]>("media");
   const [newCaseResponsible, setNewCaseResponsible] = useState("");
   const [newCaseDocs, setNewCaseDocs] = useState<NewCaseDocInput[]>([]);
   const [allCases, setAllCases] = useState<CaseWithComputed[]>([]);
   const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
+  const [partners, setPartners] = useState<Array<{ id: string; name: string }>>([]);
   const [users, setUsers] = useState<User[]>([]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     if (!user) return;
-    Promise.allSettled([listCasesRequest(), listClientsRequest(), listUsersRequest()])
-      .then((results) => {
+    Promise.allSettled([listCasesRequest(), listClientsRequest(), listPartnersRequest(), listUsersRequest()])
+      .then(async (results) => {
         const casesResult = results[0];
         const clientsResult = results[1];
-        const usersResult = results[2];
+        const partnersResult = results[2];
+        const usersResult = results[3];
 
         if (casesResult.status !== "fulfilled" || clientsResult.status !== "fulfilled") {
           throw new Error("Falha ao carregar dados principais.");
@@ -60,24 +81,66 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
 
         const casesData = casesResult.value;
         const clientsData = clientsResult.value;
+        const partnersData = partnersResult.status === "fulfilled" ? partnersResult.value : [];
         const usersData = usersResult.status === "fulfilled" ? usersResult.value : [];
         const clientsMap = new Map(clientsData.map((client) => [client.id, client.name]));
-        const mappedCases: CaseWithComputed[] = casesData.map((item) => ({
-          ...item,
-          clientName: clientsMap.get(item.clientId) ?? "Cliente",
-          clientType: "Pessoa Física",
-          progress: progressForStatus(item.status),
-          pendingClient: 0,
-          portalActive: false,
-          portalExpiry: undefined,
-          lastUpdate: new Date(item.updatedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }),
-          stages: [],
-          documents: [],
-          updates: [],
-          checklist: [],
-        }));
+        const metadataResults = await Promise.all(
+          casesData.map(async (item) => {
+            const [membersResult, stagesResult, docsResult, portalResult] = await Promise.allSettled([
+              listCaseMembersRequest(item.id),
+              listCaseStagesRequest(item.id),
+              listCaseDocumentsRequest(item.id),
+              getCasePortalLinkStatusRequest(item.id),
+            ]);
+
+            const members = membersResult.status === "fulfilled" ? membersResult.value : [];
+            const stages = stagesResult.status === "fulfilled" ? stagesResult.value : [];
+            const documents = docsResult.status === "fulfilled" ? docsResult.value : [];
+            const portal = portalResult.status === "fulfilled" ? portalResult.value : null;
+
+            const owner = members.find((member) => member.permission === "OWNER");
+            const responsible = owner?.userName ?? "Não definido";
+            const team = members
+              .filter((member) => member.permission !== "OWNER")
+              .map((member) => member.userName);
+            const doneStages = stages.filter((stage) => stage.status === "DONE").length;
+            const pendingClient = documents.filter((doc) => doc.visibility === "cliente" && doc.status === "pendente").length;
+
+            return {
+              caseId: item.id,
+              responsible,
+              team,
+              progress: progressFromStages(stages.length, doneStages, item.status),
+              pendingClient,
+              portalActive: portal?.status === "ACTIVE",
+              portalExpiry: portal?.expiresAt ? formatDate(portal.expiresAt) : undefined,
+            };
+          }),
+        );
+        const metadataMap = new Map(metadataResults.map((meta) => [meta.caseId, meta]));
+        const mappedCases: CaseWithComputed[] = casesData.map((item) => {
+          const meta = metadataMap.get(item.id);
+          return {
+            ...item,
+            responsible: meta?.responsible ?? "Não definido",
+            team: meta?.team ?? [],
+            clientName: clientsMap.get(item.clientId) ?? "Cliente",
+            clientType: "Pessoa Física",
+            partnerName: item.partnerName,
+            progress: meta?.progress ?? progressForStatus(item.status),
+            pendingClient: meta?.pendingClient ?? 0,
+            portalActive: meta?.portalActive ?? false,
+            portalExpiry: meta?.portalExpiry,
+            lastUpdate: formatDate(item.updatedAt),
+            stages: [],
+            documents: [],
+            updates: [],
+            checklist: [],
+          };
+        });
         setAllCases(mappedCases);
         setClients(clientsData.map((client) => ({ id: client.id, name: client.name })));
+        setPartners(partnersData.map((partner) => ({ id: partner.id, name: partner.name })));
         setUsers(usersData.filter((staff) => staff.active));
       })
       .catch((error) => {
@@ -89,7 +152,12 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     () =>
       allCases.filter((c) => {
         if (filter !== "todos" && c.status !== filter) return false;
-        if (searchQuery && !c.title.toLowerCase().includes(searchQuery.toLowerCase()) && !c.clientName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        if (
+          searchQuery &&
+          !c.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          !c.clientName.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          !(c.partnerName ?? "").toLowerCase().includes(searchQuery.toLowerCase())
+        ) return false;
         return true;
       }),
     [allCases, filter, searchQuery],
@@ -108,6 +176,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
   const resetCreateForm = useCallback(() => {
     setNewCaseTitle("");
     setNewCaseClientId("");
+    setNewCasePartnerId("");
     setNewCasePriority("media");
     setNewCaseResponsible("");
     setNewCaseDocs([]);
@@ -161,6 +230,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     try {
       await createCaseRequest({
         clientId: newCaseClientId,
+        partnerId: newCasePartnerId || undefined,
         title: newCaseTitle.trim(),
         caseNumber: undefined,
         area: undefined,
@@ -181,7 +251,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar caso.");
     }
-  }, [newCaseClientId, newCaseDocs.length, newCasePriority, newCaseResponsible, newCaseTitle, refresh, resetCreateForm, user]);
+  }, [newCaseClientId, newCaseDocs.length, newCasePartnerId, newCasePriority, newCaseResponsible, newCaseTitle, refresh, resetCreateForm, user]);
 
   return {
     filter,
@@ -195,12 +265,15 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     setNewCaseTitle,
     newCaseClientId,
     setNewCaseClientId,
+    newCasePartnerId,
+    setNewCasePartnerId,
     newCasePriority,
     setNewCasePriority,
     newCaseResponsible,
     setNewCaseResponsible,
     newCaseDocs,
     clients,
+    partners,
     users,
     handleCreateCase,
     handleCreateDialogOpenChange,

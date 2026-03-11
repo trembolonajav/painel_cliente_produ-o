@@ -16,6 +16,7 @@ public interface CaseFileRepository extends JpaRepository<CaseFile, UUID> {
             select c
             from CaseFile c
             join fetch c.client cl
+            left join fetch c.partner p
             where (:status is null or c.status = :status)
               and (:clientId is null or cl.id = :clientId)
             order by c.updatedAt desc
@@ -26,10 +27,12 @@ public interface CaseFileRepository extends JpaRepository<CaseFile, UUID> {
             select c
             from CaseFile c
             join fetch c.client cl
+            left join fetch c.partner p
             where (:status is null or c.status = :status)
               and (:clientId is null or cl.id = :clientId)
               and (lower(c.title) like lower(concat('%', :search, '%'))
-                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(p.name, '')) like lower(concat('%', :search, '%')))
             order by c.updatedAt desc
             """)
     List<CaseFile> searchAllWithTerm(@Param("status") CaseStatus status, @Param("clientId") UUID clientId, @Param("search") String search);
@@ -38,6 +41,7 @@ public interface CaseFileRepository extends JpaRepository<CaseFile, UUID> {
             select distinct c
             from CaseFile c
             join fetch c.client cl
+            left join fetch c.partner p
             join CaseMember cm on cm.caseFile.id = c.id
             where cm.user.id = :userId
               and (:status is null or c.status = :status)
@@ -53,12 +57,14 @@ public interface CaseFileRepository extends JpaRepository<CaseFile, UUID> {
             select distinct c
             from CaseFile c
             join fetch c.client cl
+            left join fetch c.partner p
             join CaseMember cm on cm.caseFile.id = c.id
             where cm.user.id = :userId
               and (:status is null or c.status = :status)
               and (:clientId is null or cl.id = :clientId)
               and (lower(c.title) like lower(concat('%', :search, '%'))
-                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%')))
+                  or lower(coalesce(c.caseNumber, '')) like lower(concat('%', :search, '%'))
+                  or lower(coalesce(p.name, '')) like lower(concat('%', :search, '%')))
             order by c.updatedAt desc
             """)
     List<CaseFile> searchByMemberWithTerm(

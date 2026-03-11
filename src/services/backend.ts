@@ -1,4 +1,4 @@
-import type { CaseData, CasePriority, CaseStatus, Client, User, UserRole } from "@/types";
+import type { CaseData, CasePriority, CaseStatus, Client, Partner, User, UserRole } from "@/types";
 import { apiRequest, getApiBaseUrl } from "./apiClient";
 
 type BackendRole = "ADMINISTRADOR" | "GESTOR" | "ESTAGIARIO";
@@ -49,10 +49,26 @@ type ClientDeleteResponse = {
   message: string;
 };
 
+type PartnerResponse = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PartnerDeleteResponse = {
+  deleted: boolean;
+  message: string;
+};
+
 type CaseResponse = {
   id: string;
   clientId: string;
   clientName: string;
+  partnerId?: string | null;
+  partnerName?: string | null;
   title: string;
   caseNumber?: string;
   area?: string;
@@ -168,6 +184,13 @@ type ClientPortalStageResponse = {
   position: number;
   status: "PENDING" | "ACTIVE" | "DONE";
   updatedAt: string;
+  substeps?: {
+    id: string;
+    title: string;
+    position: number;
+    status: "PENDING" | "IN_PROGRESS" | "DONE";
+    updatedAt: string;
+  }[];
 };
 
 type ClientPortalPatrimonyNodeResponse = {
@@ -477,6 +500,88 @@ export async function deleteClientRequest(id: string): Promise<ClientDeleteRespo
   });
 }
 
+export async function listPartnersRequest(): Promise<Partner[]> {
+  const response = await apiRequest<PartnerResponse[]>("/partners", { auth: true });
+  return response.map((item) => ({
+    id: item.id,
+    name: item.name,
+    email: item.email,
+    phone: item.phone,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  }));
+}
+
+export async function getPartnerRequest(id: string): Promise<Partner> {
+  const response = await apiRequest<PartnerResponse>(`/partners/${id}`, { auth: true });
+  return {
+    id: response.id,
+    name: response.name,
+    email: response.email,
+    phone: response.phone,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
+export async function createPartnerRequest(data: {
+  name: string;
+  email: string;
+  phone: string;
+}): Promise<Partner> {
+  const response = await apiRequest<PartnerResponse>("/partners", {
+    method: "POST",
+    auth: true,
+    body: {
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+    },
+  });
+  return {
+    id: response.id,
+    name: response.name,
+    email: response.email,
+    phone: response.phone,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
+export async function updatePartnerRequest(
+  id: string,
+  data: {
+    name: string;
+    email: string;
+    phone: string;
+  },
+): Promise<Partner> {
+  const response = await apiRequest<PartnerResponse>(`/partners/${id}`, {
+    method: "PUT",
+    auth: true,
+    body: {
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+    },
+  });
+  return {
+    id: response.id,
+    name: response.name,
+    email: response.email,
+    phone: response.phone,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
+export async function deletePartnerRequest(id: string): Promise<PartnerDeleteResponse> {
+  return apiRequest<PartnerDeleteResponse>(`/partners/${id}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
 export async function listCasesRequest(search?: string): Promise<CaseData[]> {
   const query = search ? `?search=${encodeURIComponent(search)}` : "";
   const response = await apiRequest<CaseResponse[]>(`/cases${query}`, { auth: true });
@@ -488,6 +593,8 @@ export async function listCasesRequest(search?: string): Promise<CaseData[]> {
       title: item.title,
       subtitle: item.area || "",
       clientId: item.clientId,
+      partnerId: item.partnerId || undefined,
+      partnerName: item.partnerName || undefined,
       status,
       priority: toFrontendCasePriority(item.priority),
       responsible: "Não definido",
@@ -502,6 +609,7 @@ export async function listCasesRequest(search?: string): Promise<CaseData[]> {
 
 export async function createCaseRequest(data: {
   clientId: string;
+  partnerId?: string;
   title: string;
   caseNumber?: string;
   area?: string;
@@ -514,6 +622,7 @@ export async function createCaseRequest(data: {
     auth: true,
     body: {
       clientId: data.clientId,
+      partnerId: data.partnerId || null,
       title: data.title,
       caseNumber: data.caseNumber || null,
       area: data.area || null,
@@ -529,6 +638,8 @@ export async function createCaseRequest(data: {
     title: response.title,
     subtitle: response.area || "",
     clientId: response.clientId,
+    partnerId: response.partnerId || undefined,
+    partnerName: response.partnerName || undefined,
     status,
     priority: toFrontendCasePriority(response.priority),
     responsible: "Não definido",
@@ -577,6 +688,8 @@ export async function getCaseDetailRequest(caseId: string): Promise<CaseDetailPa
       title: caseResponse.title,
       subtitle: caseResponse.area || "",
       clientId: caseResponse.clientId,
+      partnerId: caseResponse.partnerId || undefined,
+      partnerName: caseResponse.partnerName || undefined,
       status,
       priority: toFrontendCasePriority(caseResponse.priority),
       responsible: responsibleName,
@@ -878,6 +991,13 @@ export type ClientPortalStage = {
   position: number;
   status: "pendente" | "em_andamento" | "concluido";
   updatedAt: string;
+  substeps: {
+    id: string;
+    title: string;
+    position: number;
+    status: "pendente" | "em_andamento" | "concluido";
+    updatedAt: string;
+  }[];
 };
 
 export type ClientPortalPatrimony = {
@@ -944,6 +1064,16 @@ export async function listClientPortalStagesRequest(sessionToken?: string): Prom
       position: item.position,
       status: item.status === "DONE" ? "concluido" : item.status === "ACTIVE" ? "em_andamento" : "pendente",
       updatedAt: item.updatedAt,
+      substeps: (item.substeps ?? [])
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((substep) => ({
+          id: substep.id,
+          title: substep.title,
+          position: substep.position,
+          status: substep.status === "DONE" ? "concluido" : substep.status === "IN_PROGRESS" ? "em_andamento" : "pendente",
+          updatedAt: substep.updatedAt,
+        })),
     }));
 }
 

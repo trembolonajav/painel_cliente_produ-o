@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Briefcase, Users as UsersIcon, FileText, Settings, LogOut, Search, Plus, Edit2, Shield, Trash2,
+  Briefcase, Users as UsersIcon, LogOut, Search, Plus, Edit2, Shield, Trash2, Handshake,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -210,14 +210,9 @@ const Users = () => {
           <button onClick={() => navigate("/admin/usuarios")} className="sidebar-link active w-full">
             <Shield className="w-4 h-4" /> Usuários
           </button>
-          <button className="sidebar-link w-full">
-            <FileText className="w-4 h-4" /> Documentos
+          <button onClick={() => navigate("/admin/parceiros")} className="sidebar-link w-full">
+            <Handshake className="w-4 h-4" /> Parceiros
           </button>
-          {can("settings_manage") && (
-            <button className="sidebar-link w-full">
-              <Settings className="w-4 h-4" /> Configurações
-            </button>
-          )}
         </nav>
         <div className="p-3 border-t border-sidebar-border">
           <div className="px-4 py-2 text-xs text-sidebar-foreground/50 mb-1">

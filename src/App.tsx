@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import CaseDetail from "./pages/CaseDetail";
 import Clients from "./pages/Clients";
 import Users from "./pages/Users";
+import Partners from "./pages/Partners";
 import ClientVerify from "./pages/ClientVerify";
 import ClientPortal from "./pages/ClientPortal";
 import NotFound from "./pages/NotFound";
@@ -39,6 +40,7 @@ const App = () => (
               <Route path="/admin/caso/:id" element={<ProtectedRoute><CaseDetail /></ProtectedRoute>} />
               <Route path="/admin/clientes" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
               <Route path="/admin/usuarios" element={<ProtectedRoute requiredPermission="users_manage"><Users /></ProtectedRoute>} />
+              <Route path="/admin/parceiros" element={<ProtectedRoute><Partners /></ProtectedRoute>} />
               <Route path="/portal/verificar" element={<ClientVerify />} />
               <Route path="/portal/verificar/:token" element={<ClientVerify />} />
               <Route path="/client-portal" element={<ClientVerify />} />

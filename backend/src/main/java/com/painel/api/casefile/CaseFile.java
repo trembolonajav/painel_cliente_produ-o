@@ -1,6 +1,7 @@
 package com.painel.api.casefile;
 
 import com.painel.api.client.Client;
+import com.painel.api.partner.Partner;
 import com.painel.api.user.OfficeUser;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,6 +27,10 @@ public class CaseFile {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "partner_id")
+    private Partner partner;
 
     @Column(nullable = false, length = 200)
     private String title;
@@ -75,6 +80,8 @@ public class CaseFile {
     public UUID getId() { return id; }
     public Client getClient() { return client; }
     public void setClient(Client client) { this.client = client; }
+    public Partner getPartner() { return partner; }
+    public void setPartner(Partner partner) { this.partner = partner; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getCaseNumber() { return caseNumber; }

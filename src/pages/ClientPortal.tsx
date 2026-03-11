@@ -453,6 +453,18 @@ const ClientPortal = () => {
                         </div>
                         <p className="text-xs text-muted-foreground leading-relaxed">{stage.description || "Sem descricao"}</p>
                         <p className="text-[11px] text-muted-foreground/60 mt-1">{formatShortDate(stage.updatedAt)}</p>
+                        {stage.substeps.length > 0 && (
+                          <div className="mt-2 ml-1 pl-3 border-l border-border/70 space-y-1.5">
+                            {stage.substeps.map((substep) => (
+                              <div key={substep.id} className="flex items-center justify-between gap-2 text-xs">
+                                <span className="text-foreground truncate">{substep.title}</span>
+                                <span className={`shrink-0 ${stageColorClass(substep.status)}`}>
+                                  {stageStatusLabel(substep.status)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

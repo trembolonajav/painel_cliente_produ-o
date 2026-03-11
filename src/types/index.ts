@@ -31,6 +31,15 @@ export interface Client {
   createdBy: string;
 }
 
+export interface Partner {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type CaseStatus = "em_andamento" | "aguardando_cliente" | "concluido" | "risco";
 export type CasePriority = "alta" | "media" | "baixa";
 
@@ -40,6 +49,8 @@ export interface CaseData {
   title: string;
   subtitle: string;
   clientId: string;
+  partnerId?: string;
+  partnerName?: string;
   status: CaseStatus;
   priority: CasePriority;
   responsible: string;
@@ -59,6 +70,7 @@ export interface CaseStageSubstep {
   title: string;
   status: StageSubstepStatus;
   order: number;
+  visibleToClient: boolean;
 }
 
 export interface CaseStage {
