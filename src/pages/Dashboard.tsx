@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import {
   Briefcase, Users, LogOut, Search, Plus, ChevronRight, Trash2, Shield,
-  Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink, Handshake
+  Clock, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink, Handshake, Pencil
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -56,6 +56,7 @@ const Dashboard = () => {
     filtered,
     stats,
     isCreateDialogOpen,
+    editingCaseId,
     newCaseTitle,
     setNewCaseTitle,
     newCaseClientId,
@@ -71,6 +72,7 @@ const Dashboard = () => {
     partners,
     users,
     handleCreateCase,
+    handleStartEditingCase,
     handleCreateDialogOpenChange,
     handleAddFilesToNewCase,
     handleAddPendingClientDoc,
@@ -152,8 +154,12 @@ const Dashboard = () => {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Novo Caso</DialogTitle>
-                    <DialogDescription>Preencha os dados principais para cadastrar um novo caso.</DialogDescription>
+                    <DialogTitle>{editingCaseId ? "Editar Caso" : "Novo Caso"}</DialogTitle>
+                    <DialogDescription>
+                      {editingCaseId
+                        ? "Atualize os dados principais do caso."
+                        : "Preencha os dados principais para cadastrar um novo caso."}
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="space-y-2">
@@ -224,6 +230,7 @@ const Dashboard = () => {
                         </SelectContent>
                       </Select>
                     </div>
+                    {!editingCaseId && (
                     <div className="space-y-2">
                       <Label htmlFor="new-case-doc-upload">Documentos</Label>
                       <Input
@@ -280,6 +287,7 @@ const Dashboard = () => {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => handleCreateDialogOpenChange(false)}>Cancelar</Button>
@@ -288,7 +296,7 @@ const Dashboard = () => {
                       onClick={handleCreateCase}
                       disabled={!newCaseTitle.trim() || !newCaseClientId}
                     >
-                      Criar Caso
+                      {editingCaseId ? "Salvar alterações" : "Criar Caso"}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -299,12 +307,11 @@ const Dashboard = () => {
 
         <div className="p-6 space-y-6 max-w-7xl">
           {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { label: "Total de casos", value: stats.total, icon: Briefcase, accent: false },
               { label: "Em andamento", value: stats.andamento, icon: Clock, accent: false },
               { label: "Aguardando cliente", value: stats.aguardando, icon: AlertCircle, accent: false },
-              { label: "Atenção necessária", value: stats.risco, icon: AlertTriangle, accent: true },
             ].map((s) => (
               <div key={s.label} className={`rounded-xl border p-4 ${s.accent && s.value > 0 ? "border-destructive/30 bg-destructive/5" : "bg-card"}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -323,7 +330,7 @@ const Dashboard = () => {
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar por caso ou cliente..."
+                placeholder="Buscar por caso, cliente ou parceiro..."
                 className="input-field pl-10 text-sm"
               />
             </div>
@@ -332,7 +339,6 @@ const Dashboard = () => {
                 { key: "todos", label: "Todos" },
                 { key: "em_andamento", label: "Em andamento" },
                 { key: "aguardando_cliente", label: "Aguardando" },
-                { key: "risco", label: "Atenção" },
                 { key: "concluido", label: "Concluído" },
               ].map((f) => (
                 <button
@@ -373,6 +379,19 @@ const Dashboard = () => {
                         <p className="text-xs text-muted-foreground mt-0.5">{c.clientName} · {c.clientType}</p>
                       </div>
                       <div className="flex items-center gap-1">
+                        {can("cases_write") && (
+                          <span
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void handleStartEditingCase(c);
+                            }}
+                            className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                            title="Editar caso"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </span>
+                        )}
                         {can("cases_write") && (
                           <span
                             onClick={(e) => {

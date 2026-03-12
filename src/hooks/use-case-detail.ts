@@ -21,6 +21,7 @@ import {
   listCaseStagesRequest,
   listCaseTasksRequest,
   listCaseUpdatesRequest,
+  markCaseDocumentReceivedRequest,
   revokeCasePortalLinkRequest,
   updateStageSubstepRequest,
   updateCaseStageRequest,
@@ -108,6 +109,7 @@ function mapDocuments(items: StaffDocument[], caseId: string): CaseDocument[] {
     date: formatDate(item.date),
     visibility: item.visibility,
     status: item.status,
+    storageKey: item.storageKey,
     sizeBytes: item.sizeBytes,
   }));
 }
@@ -411,6 +413,20 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     [canReorderStages, caseData, isReordering, refresh],
   );
 
+  const handleStageUpdate = useCallback(
+    async (stage: CaseStage, payload: { name: string; description: string }) => {
+      if (!can("stages_write")) return;
+      await updateCaseStageRequest(stage.id, {
+        title: payload.name.trim(),
+        description: payload.description.trim() || undefined,
+        position: stage.order,
+        status: stage.status === "concluido" ? "DONE" : stage.status === "em_andamento" ? "ACTIVE" : "PENDING",
+      });
+      refresh();
+    },
+    [can, refresh],
+  );
+
   const handleSubstepOrderChange = useCallback(
     async (substep: CaseStageSubstep, order: number) => {
       if (!can("stages_write")) return;
@@ -622,9 +638,19 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     }
   }, [can, caseId, newDocFile, newDocStatus, newDocVisibility, refresh, user]);
 
-  const handleResolvePendingDocument = useCallback((_docId: string) => {
-    toast.info("Fluxo de pendência de documento ainda sem endpoint dedicado.");
-  }, []);
+  const handleResolvePendingDocument = useCallback(
+    async (docId: string) => {
+      if (!caseId || !can("docs_write")) return;
+      try {
+        await markCaseDocumentReceivedRequest(caseId, docId);
+        toast.success("Documento marcado como recebido.");
+        refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao marcar documento como recebido.");
+      }
+    },
+    [can, caseId, refresh],
+  );
 
   const handleDeleteStage = useCallback(
     async (stageId: string) => {
@@ -806,6 +832,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     handleDeleteSubstep,
     handleStageClick,
     handleStageReorder,
+    handleStageUpdate,
     handleToggleTask,
     handleAddTask,
     handleAddUpdate,

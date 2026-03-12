@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -60,6 +61,15 @@ public class DocumentController {
             @Valid @RequestBody DocumentRequest request,
             @AuthenticationPrincipal OfficeUser actor) {
         return documentService.confirm(caseId, request, actor);
+    }
+
+    @PatchMapping("/{documentId}/receive")
+    @ResponseStatus(HttpStatus.OK)
+    public DocumentResponse markReceived(
+            @PathVariable UUID caseId,
+            @PathVariable UUID documentId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return documentService.markReceived(caseId, documentId, actor);
     }
 
     @PostMapping("/{documentId}/download-link")

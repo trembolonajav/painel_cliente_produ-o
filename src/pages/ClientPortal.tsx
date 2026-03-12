@@ -80,12 +80,8 @@ const formatShortDate = (dateValue: string): string =>
     year: "numeric",
   });
 
-const normalizeWhatsappPhone = (value?: string): string | null => {
-  if (!value) return null;
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return null;
-  return digits.length <= 11 ? `55${digits}` : digits;
-};
+const OFFICE_WHATSAPP = "5562993837928";
+const OFFICE_EMAIL = "contato@abradvogados.com.br";
 
 const ClientPortal = () => {
   const navigate = useNavigate();
@@ -174,20 +170,23 @@ const ClientPortal = () => {
   );
   const pendingDocs = useMemo(() => docs.filter((doc) => doc.status === "pendente"), [docs]);
   const availableDocs = useMemo(() => docs.filter((doc) => doc.status === "disponivel"), [docs]);
-  const whatsappPhone = useMemo(() => normalizeWhatsappPhone(caseData?.responsiblePhone), [caseData?.responsiblePhone]);
   const whatsappMessage = useMemo(() => {
-    const base = `Ola, estou entrando em contato sobre a documentacao pendente do meu caso "${caseData?.title ?? ""}". Gostaria de enviar os documentos solicitados.`;
-    if (pendingDocs.length === 0) return base;
-    const pendingList = pendingDocs
-      .slice(0, 3)
-      .map((doc) => doc.name)
-      .join(", ");
-    return `${base} Documentos pendentes: ${pendingList}${pendingDocs.length > 3 ? "..." : ""}`;
-  }, [caseData?.title, pendingDocs]);
+    return `Olá, estou entrando em contato pois tenho dúvidas sobre o meu caso ${caseData?.title ?? ""}.`;
+  }, [caseData?.title]);
   const whatsappUrl = useMemo(() => {
-    if (!whatsappPhone) return null;
-    return `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`;
-  }, [whatsappPhone, whatsappMessage]);
+    return `https://wa.me/${OFFICE_WHATSAPP}?text=${encodeURIComponent(whatsappMessage)}`;
+  }, [whatsappMessage]);
+  const emailUrl = useMemo(() => {
+    const subject = `Dúvidas sobre o caso ${caseData?.title ?? ""}`;
+    const body = [
+      "Olá,",
+      "",
+      `Tenho dúvidas sobre o caso ${caseData?.title ?? ""}.`,
+      "",
+      "Aguardo retorno.",
+    ].join("\n");
+    return `mailto:${OFFICE_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }, [caseData?.title]);
 
   useEffect(() => {
     setCurrentStructurePage(1);
@@ -396,18 +395,12 @@ const ClientPortal = () => {
               ))}
             </ul>
             <div className="mt-3">
-              {whatsappUrl ? (
-                <button
-                  onClick={() => window.open(whatsappUrl, "_blank", "noopener,noreferrer")}
-                  className="btn-gold px-4 py-2 text-xs sm:text-sm"
-                >
-                  Enviar documentacao pendente
-                </button>
-              ) : (
-                <div className="text-xs text-muted-foreground">
-                  Contato por WhatsApp indisponivel no momento.
-                </div>
-              )}
+              <button
+                onClick={() => window.open(whatsappUrl, "_blank", "noopener,noreferrer")}
+                className="btn-gold px-4 py-2 text-xs sm:text-sm"
+              >
+                Enviar documentacao pendente
+              </button>
             </div>
           </div>
         </div>
@@ -669,10 +662,16 @@ const ClientPortal = () => {
           <h3 className="font-heading font-bold text-foreground mb-1">Precisa de ajuda?</h3>
           <p className="text-xs text-muted-foreground mb-4">Entre em contato com o escritorio para esclarecer duvidas sobre o seu caso.</p>
           <div className="flex flex-col sm:flex-row gap-2 justify-center">
-            <button className="btn-gold px-5 py-2.5 text-sm flex items-center justify-center gap-2">
+            <button
+              onClick={() => window.open(whatsappUrl, "_blank", "noopener,noreferrer")}
+              className="btn-gold px-5 py-2.5 text-sm flex items-center justify-center gap-2"
+            >
               <Phone className="w-4 h-4" /> Falar com o escritorio
             </button>
-            <button className="px-5 py-2.5 text-sm border rounded-lg text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-2">
+            <button
+              onClick={() => { window.location.href = emailUrl; }}
+              className="px-5 py-2.5 text-sm border rounded-lg text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-2"
+            >
               <Mail className="w-4 h-4" /> Enviar mensagem
             </button>
           </div>

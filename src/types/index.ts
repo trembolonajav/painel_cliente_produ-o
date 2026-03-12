@@ -107,6 +107,7 @@ export interface CaseDocument {
   date: string;
   visibility: DocVisibility;
   status: DocStatus;
+  storageKey?: string;
   fileDataUrl?: string;
   mimeType?: string;
   sizeBytes?: number;

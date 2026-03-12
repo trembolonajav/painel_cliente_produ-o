@@ -103,6 +103,7 @@ const CaseDetail = () => {
     handleDeleteSubstep,
     handleStageClick,
     handleStageReorder,
+    handleStageUpdate,
     handleToggleTask,
     handleAddTask,
     handleAddUpdate,
@@ -120,6 +121,10 @@ const CaseDetail = () => {
   } = useCaseDetail({ caseId: id, user, can });
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
+  const [stageNameDrafts, setStageNameDrafts] = useState<Record<string, string>>({});
+  const [stageDescriptionDrafts, setStageDescriptionDrafts] = useState<Record<string, string>>({});
+  const [editingStageId, setEditingStageId] = useState<string | null>(null);
+  const [savingStageId, setSavingStageId] = useState<string | null>(null);
   const [substepDescriptionDrafts, setSubstepDescriptionDrafts] = useState<Record<string, string>>({});
   const [substepTitleDrafts, setSubstepTitleDrafts] = useState<Record<string, string>>({});
   const [substepVisibilityDrafts, setSubstepVisibilityDrafts] = useState<Record<string, boolean>>({});
@@ -128,20 +133,51 @@ const CaseDetail = () => {
 
   useEffect(() => {
     if (!caseData?.stages) return;
+    const nextStageNames: Record<string, string> = {};
+    const nextStageDescriptions: Record<string, string> = {};
     const nextDrafts: Record<string, string> = {};
     const nextTitles: Record<string, string> = {};
     const nextVisibility: Record<string, boolean> = {};
     caseData.stages.forEach((stage) => {
+      nextStageNames[stage.id] = stage.name;
+      nextStageDescriptions[stage.id] = stage.description ?? "";
       stage.substeps?.forEach((substep) => {
         nextDrafts[substep.id] = substep.description ?? "";
         nextTitles[substep.id] = substep.title;
         nextVisibility[substep.id] = substep.visibleToClient;
       });
     });
+    setStageNameDrafts(nextStageNames);
+    setStageDescriptionDrafts(nextStageDescriptions);
     setSubstepDescriptionDrafts(nextDrafts);
     setSubstepTitleDrafts(nextTitles);
     setSubstepVisibilityDrafts(nextVisibility);
   }, [caseData]);
+
+  const startEditingStage = (stageId: string) => {
+    setEditingStageId(stageId);
+  };
+
+  const cancelEditingStage = (stageId: string, name: string, description?: string) => {
+    setStageNameDrafts((prev) => ({ ...prev, [stageId]: name }));
+    setStageDescriptionDrafts((prev) => ({ ...prev, [stageId]: description ?? "" }));
+    setEditingStageId((current) => (current === stageId ? null : current));
+  };
+
+  const saveEditingStage = async (stage: CaseStage) => {
+    try {
+      setSavingStageId(stage.id);
+      await handleStageUpdate(stage, {
+        name: stageNameDrafts[stage.id] ?? stage.name,
+        description: stageDescriptionDrafts[stage.id] ?? stage.description ?? "",
+      });
+      setEditingStageId((current) => (current === stage.id ? null : current));
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSavingStageId(null);
+    }
+  };
 
   const startEditingSubstep = (substepId: string) => {
     setEditingSubstepId(substepId);
@@ -354,15 +390,24 @@ const CaseDetail = () => {
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                <h3 className={`text-sm font-heading font-semibold tracking-[-0.02em] ${
-                                  stage.status === "em_andamento"
-                                    ? "text-gold"
-                                    : stage.status === "pendente"
-                                      ? "text-foreground/65"
-                                      : "text-foreground"
-                                }`}>
-                                  {stage.name}
-                                </h3>
+                                {editingStageId === stage.id ? (
+                                  <input
+                                    value={stageNameDrafts[stage.id] ?? ""}
+                                    onChange={(e) => setStageNameDrafts((prev) => ({ ...prev, [stage.id]: e.target.value }))}
+                                    className="input-field h-8 min-w-[240px] max-w-md text-sm"
+                                    placeholder="Nome da etapa"
+                                  />
+                                ) : (
+                                  <h3 className={`text-sm font-heading font-semibold tracking-[-0.02em] ${
+                                    stage.status === "em_andamento"
+                                      ? "text-gold"
+                                      : stage.status === "pendente"
+                                        ? "text-foreground/65"
+                                        : "text-foreground"
+                                  }`}>
+                                    {stage.name}
+                                  </h3>
+                                )}
                                 <span className="rounded-full border border-border/70 px-2.5 py-0.5 text-[11px] text-muted-foreground">
                                   {stageStatusText[stage.status]}
                                 </span>
@@ -372,10 +417,19 @@ const CaseDetail = () => {
                                   </span>
                                 )}
                               </div>
-                              {stage.description && (
-                                <p className="mt-1.5 max-w-3xl text-xs leading-6 text-muted-foreground">
-                                  {stage.description}
-                                </p>
+                              {editingStageId === stage.id ? (
+                                <textarea
+                                  value={stageDescriptionDrafts[stage.id] ?? ""}
+                                  onChange={(e) => setStageDescriptionDrafts((prev) => ({ ...prev, [stage.id]: e.target.value }))}
+                                  className="input-field mt-2 min-h-[84px] max-w-3xl resize-y text-xs leading-6"
+                                  placeholder="Descrição da etapa..."
+                                />
+                              ) : (
+                                stage.description && (
+                                  <p className="mt-1.5 max-w-3xl text-xs leading-6 text-muted-foreground">
+                                    {stage.description}
+                                  </p>
+                                )
                               )}
                               {hasSubsteps && (
                                 <button
@@ -396,7 +450,7 @@ const CaseDetail = () => {
                                 }`}>
                                   <button
                                     onClick={() => handleStageReorder(stage, "up")}
-                                    disabled={!canReorderStages || isReordering || i === 0}
+                                    disabled={!canReorderStages || isReordering || editingStageId === stage.id || i === 0}
                                     className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                                     title="Mover para cima"
                                   >
@@ -404,13 +458,41 @@ const CaseDetail = () => {
                                   </button>
                                   <button
                                     onClick={() => handleStageReorder(stage, "down")}
-                                    disabled={!canReorderStages || isReordering || i === caseData.stages.length - 1}
+                                    disabled={!canReorderStages || isReordering || editingStageId === stage.id || i === caseData.stages.length - 1}
                                     className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                                     title="Mover para baixo"
                                   >
                                     <ArrowDown className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
+                                {editingStageId === stage.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => saveEditingStage(stage)}
+                                      disabled={!stageNameDrafts[stage.id]?.trim() || savingStageId === stage.id}
+                                      className="rounded-full p-1 text-muted-foreground/80 transition hover:text-[hsl(152_55%_39%)] disabled:opacity-40 disabled:cursor-not-allowed"
+                                      title="Salvar etapa"
+                                    >
+                                      <Check className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => cancelEditingStage(stage.id, stage.name, stage.description)}
+                                      disabled={savingStageId === stage.id}
+                                      className="rounded-full p-1 text-muted-foreground/80 transition hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+                                      title="Cancelar edição"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => startEditingStage(stage.id)}
+                                    className="rounded-full p-1 text-muted-foreground/70 transition hover:text-foreground"
+                                    title="Editar etapa"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                )}
                                 <button
                                   onClick={() =>
                                     setPendingDelete({
@@ -888,9 +970,11 @@ const CaseDetail = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="status-badge status-complete">Disponível</span>
-                        <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                          <Download className="w-4 h-4" />
-                        </button>
+                        {doc.storageKey && (
+                          <button onClick={() => handleDownloadDocument(doc)} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                            <Download className="w-4 h-4" />
+                          </button>
+                        )}
                         {can("docs_write") && (
                           <button
                             onClick={() =>

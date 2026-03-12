@@ -653,6 +653,53 @@ export async function createCaseRequest(data: {
   };
 }
 
+export async function updateCaseRequest(
+  caseId: string,
+  data: {
+    clientId: string;
+    partnerId?: string;
+    title: string;
+    caseNumber?: string;
+    area?: string;
+    status: CaseStatus;
+    priority: CasePriority;
+    responsibleUserId?: string;
+  },
+): Promise<CaseData> {
+  const response = await apiRequest<CaseResponse>(`/cases/${caseId}`, {
+    method: "PATCH",
+    auth: true,
+    body: {
+      clientId: data.clientId,
+      partnerId: data.partnerId || null,
+      title: data.title,
+      caseNumber: data.caseNumber || null,
+      area: data.area || null,
+      status: toBackendCaseStatus(data.status),
+      priority: toBackendCasePriority(data.priority),
+      responsibleUserId: data.responsibleUserId || null,
+    },
+  });
+  const status = toFrontendCaseStatus(response.status);
+  return {
+    id: response.id,
+    code: response.caseNumber || response.id.slice(0, 8).toUpperCase(),
+    title: response.title,
+    subtitle: response.area || "",
+    clientId: response.clientId,
+    partnerId: response.partnerId || undefined,
+    partnerName: response.partnerName || undefined,
+    status,
+    priority: toFrontendCasePriority(response.priority),
+    responsible: "Não definido",
+    team: [],
+    currentStage: 0,
+    nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
 export async function deleteCaseRequest(caseId: string): Promise<CaseDeleteResponse> {
   return apiRequest<CaseDeleteResponse>(`/cases/${caseId}`, {
     method: "DELETE",
@@ -751,6 +798,7 @@ export type StaffDocument = {
   date: string;
   visibility: "interno" | "cliente";
   status: "disponivel" | "pendente";
+  storageKey?: string;
   sizeBytes: number;
 };
 
@@ -845,6 +893,7 @@ export async function listCaseDocumentsRequest(caseId: string): Promise<StaffDoc
     date: item.createdAt,
     visibility: item.visibility === "CLIENT_VISIBLE" ? "cliente" : "interno",
     status: item.status === "PENDING" ? "pendente" : "disponivel",
+    storageKey: item.storageKey || undefined,
     sizeBytes: item.sizeBytes,
   }));
 }
@@ -927,6 +976,13 @@ export async function getCaseDocumentDownloadUrlRequest(caseId: string, document
 export async function deleteCaseDocumentRequest(caseId: string, documentId: string): Promise<DocumentDeleteResponse> {
   return apiRequest<DocumentDeleteResponse>(`/cases/${caseId}/documents/${documentId}`, {
     method: "DELETE",
+    auth: true,
+  });
+}
+
+export async function markCaseDocumentReceivedRequest(caseId: string, documentId: string): Promise<void> {
+  await apiRequest<DocumentResponse>(`/cases/${caseId}/documents/${documentId}/receive`, {
+    method: "PATCH",
     auth: true,
   });
 }

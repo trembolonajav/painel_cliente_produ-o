@@ -12,6 +12,7 @@ import {
   listClientsRequest,
   listPartnersRequest,
   listUsersRequest,
+  updateCaseRequest,
 } from "@/services/backend";
 import { generateId } from "@/lib/id";
 
@@ -66,6 +67,8 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
   const [searchQuery, setSearchQuery] = useState("");
   const [tick, setTick] = useState(0);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
+  const [editingCaseStatus, setEditingCaseStatus] = useState<CaseWithComputed["status"] | null>(null);
   const [newCaseTitle, setNewCaseTitle] = useState("");
   const [newCaseClientId, setNewCaseClientId] = useState("");
   const [newCasePartnerId, setNewCasePartnerId] = useState("");
@@ -193,6 +196,8 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
   );
 
   const resetCreateForm = useCallback(() => {
+    setEditingCaseId(null);
+    setEditingCaseStatus(null);
     setNewCaseTitle("");
     setNewCaseClientId("");
     setNewCasePartnerId("");
@@ -207,6 +212,27 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
       if (!open) resetCreateForm();
     },
     [resetCreateForm],
+  );
+
+  const handleStartEditingCase = useCallback(
+    async (caseItem: CaseWithComputed) => {
+      try {
+        const members = await listCaseMembersRequest(caseItem.id);
+        const owner = members.find((member) => member.permission === "OWNER");
+        setEditingCaseId(caseItem.id);
+        setEditingCaseStatus(caseItem.status);
+        setNewCaseTitle(caseItem.title);
+        setNewCaseClientId(caseItem.clientId);
+        setNewCasePartnerId(caseItem.partnerId ?? "");
+        setNewCasePriority(caseItem.priority);
+        setNewCaseResponsible(owner?.userId ?? "");
+        setNewCaseDocs([]);
+        setIsCreateDialogOpen(true);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Falha ao carregar dados do caso.");
+      }
+    },
+    [],
   );
 
   const handleAddFilesToNewCase = useCallback((files: FileList | null) => {
@@ -247,30 +273,44 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     if (!user || !newCaseTitle.trim() || !newCaseClientId) return;
 
     try {
-      await createCaseRequest({
-        clientId: newCaseClientId,
-        partnerId: newCasePartnerId || undefined,
-        title: newCaseTitle.trim(),
-        caseNumber: undefined,
-        area: undefined,
-        status: "em_andamento",
-        priority: newCasePriority,
-        responsibleUserId: newCaseResponsible || undefined,
-      });
-
-      if (newCaseDocs.length > 0) {
-        toast.info("Caso criado. Upload de documentos nesta etapa ainda será conectado ao fluxo presign.");
+      if (editingCaseId) {
+        await updateCaseRequest(editingCaseId, {
+          clientId: newCaseClientId,
+          partnerId: newCasePartnerId || undefined,
+          title: newCaseTitle.trim(),
+          caseNumber: undefined,
+          area: undefined,
+          status: editingCaseStatus ?? "em_andamento",
+          priority: newCasePriority,
+          responsibleUserId: newCaseResponsible || undefined,
+        });
+        toast.success("Caso atualizado com sucesso");
       } else {
-        toast.success("Caso criado com sucesso");
+        await createCaseRequest({
+          clientId: newCaseClientId,
+          partnerId: newCasePartnerId || undefined,
+          title: newCaseTitle.trim(),
+          caseNumber: undefined,
+          area: undefined,
+          status: "em_andamento",
+          priority: newCasePriority,
+          responsibleUserId: newCaseResponsible || undefined,
+        });
+
+        if (newCaseDocs.length > 0) {
+          toast.info("Caso criado. Upload de documentos nesta etapa ainda será conectado ao fluxo presign.");
+        } else {
+          toast.success("Caso criado com sucesso");
+        }
       }
 
       setIsCreateDialogOpen(false);
       resetCreateForm();
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao criar caso.");
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar caso.");
     }
-  }, [newCaseClientId, newCaseDocs.length, newCasePartnerId, newCasePriority, newCaseResponsible, newCaseTitle, refresh, resetCreateForm, user]);
+  }, [editingCaseId, editingCaseStatus, newCaseClientId, newCaseDocs.length, newCasePartnerId, newCasePriority, newCaseResponsible, newCaseTitle, refresh, resetCreateForm, user]);
 
   return {
     filter,
@@ -280,6 +320,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     filtered,
     stats,
     isCreateDialogOpen,
+    editingCaseId,
     newCaseTitle,
     setNewCaseTitle,
     newCaseClientId,
@@ -295,6 +336,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     partners,
     users,
     handleCreateCase,
+    handleStartEditingCase,
     handleCreateDialogOpenChange,
     handleAddFilesToNewCase,
     handleAddPendingClientDoc,

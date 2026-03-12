@@ -5,9 +5,14 @@ import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
 import com.painel.api.casefile.CaseFile;
 import com.painel.api.casefile.CaseFileRepository;
+import com.painel.api.casefile.CaseStatus;
 import com.painel.api.common.NotFoundException;
+import com.painel.api.common.Visibility;
 import com.painel.api.storage.StorageService;
 import com.painel.api.user.OfficeUser;
+import com.painel.api.workflow.CaseStage;
+import com.painel.api.workflow.CaseStageRepository;
+import com.painel.api.workflow.CaseStageSubstepRepository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +25,8 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final CaseFileRepository caseFileRepository;
+    private final CaseStageRepository caseStageRepository;
+    private final CaseStageSubstepRepository caseStageSubstepRepository;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
     private final StorageService storageService;
@@ -27,11 +34,15 @@ public class DocumentService {
     public DocumentService(
             DocumentRepository documentRepository,
             CaseFileRepository caseFileRepository,
+            CaseStageRepository caseStageRepository,
+            CaseStageSubstepRepository caseStageSubstepRepository,
             AuthorizationService authorizationService,
             AuditService auditService,
             StorageService storageService) {
         this.documentRepository = documentRepository;
         this.caseFileRepository = caseFileRepository;
+        this.caseStageRepository = caseStageRepository;
+        this.caseStageSubstepRepository = caseStageSubstepRepository;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
         this.storageService = storageService;
@@ -69,6 +80,7 @@ public class DocumentService {
         }
 
         Document saved = documentRepository.save(document);
+        refreshCaseStatus(caseFile);
         Map<String, Object> details = new HashMap<>();
         details.put("caseId", caseId.toString());
         details.put("visibility", saved.getVisibility().name());
@@ -115,6 +127,30 @@ public class DocumentService {
     }
 
     @Transactional
+    public DocumentResponse markReceived(UUID caseId, UUID documentId, OfficeUser actor) {
+        authorizationService.requireCaseWriteAccess(actor, caseId);
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Documento nao encontrado"));
+        if (!document.getCaseFile().getId().equals(caseId)) {
+            throw new NotFoundException("Documento nao pertence ao caso");
+        }
+
+        document.setStatus(DocumentStatus.AVAILABLE);
+        Document saved = documentRepository.save(document);
+        refreshCaseStatus(saved.getCaseFile());
+
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "DOCUMENT",
+                saved.getId(),
+                "MARK_RECEIVED",
+                Map.of("caseId", caseId.toString(), "visibility", saved.getVisibility().name()));
+
+        return toResponse(saved);
+    }
+
+    @Transactional
     public DocumentDeleteResponse delete(UUID caseId, UUID documentId, OfficeUser actor) {
         authorizationService.requireCaseWriteAccess(actor, caseId);
         Document document = documentRepository.findById(documentId)
@@ -124,7 +160,9 @@ public class DocumentService {
         }
 
         String storageKey = document.getStorageKey();
+        CaseFile caseFile = document.getCaseFile();
         documentRepository.delete(document);
+        refreshCaseStatus(caseFile);
 
         Map<String, Object> details = new HashMap<>();
         details.put("caseId", caseId.toString());
@@ -168,5 +206,56 @@ public class DocumentService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void refreshCaseStatus(CaseFile caseFile) {
+        CaseStatus nextStatus = resolveCaseStatus(caseFile.getId());
+        if (caseFile.getStatus() == nextStatus) {
+            return;
+        }
+        caseFile.setStatus(nextStatus);
+        if (nextStatus == CaseStatus.CLOSED && caseFile.getClosedAt() == null) {
+            caseFile.setClosedAt(java.time.OffsetDateTime.now());
+        } else if (nextStatus != CaseStatus.CLOSED) {
+            caseFile.setClosedAt(null);
+        }
+        caseFileRepository.save(caseFile);
+    }
+
+    private CaseStatus resolveCaseStatus(UUID caseId) {
+        List<CaseStage> stages = caseStageRepository.findByCaseFile_IdOrderByPositionAsc(caseId);
+        int totalUnits = 0;
+        int completedUnits = 0;
+
+        for (CaseStage stage : stages) {
+            var substeps = caseStageSubstepRepository.findByStage_IdOrderByPositionAsc(stage.getId());
+            if (!substeps.isEmpty()) {
+                totalUnits += substeps.size();
+                completedUnits += (int) substeps.stream()
+                        .filter(substep -> substep.getStatus().name().equals("DONE"))
+                        .count();
+            } else {
+                totalUnits += 1;
+                if (stage.getStatus().name().equals("DONE")) {
+                    completedUnits += 1;
+                }
+            }
+        }
+
+        if (totalUnits > 0 && completedUnits == totalUnits) {
+            return CaseStatus.CLOSED;
+        }
+
+        boolean waitingClient = documentRepository
+                .findByCaseFile_IdAndVisibilityAndStatusOrderByCreatedAtDesc(caseId, Visibility.CLIENT_VISIBLE, DocumentStatus.PENDING)
+                .stream()
+                .findAny()
+                .isPresent();
+
+        if (waitingClient) {
+            return CaseStatus.WAITING_CLIENT;
+        }
+
+        return CaseStatus.IN_PROGRESS;
     }
 }
