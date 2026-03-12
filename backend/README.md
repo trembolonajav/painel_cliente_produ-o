@@ -1,78 +1,49 @@
-# Backend - Painel Cliente
+# Backend - Painel do Cliente
 
-Base inicial de producao em Spring Boot + Postgres + Flyway.
+Backend API em Spring Boot responsavel por autenticacao administrativa, operacao de casos, portal do cliente, persistencia em PostgreSQL e integracao com storage de documentos.
 
 ## Stack
+
 - Java 21
-- Spring Boot 3.3
-- Spring Security (JWT Bearer)
+- Spring Boot 3
+- Spring Security
 - Spring Data JPA
 - Flyway
 - PostgreSQL
+- AWS SDK S3-compatible
 
-## Estrutura atual
-- `office_users`
-- `clients`
-- `cases`
-- `case_members`
-- `case_portal_links`
-- `POST /auth/login`
-- `GET /auth/me`
-- `GET /health`
-- `GET/POST/PATCH /clients`
-- `GET/POST/PATCH /cases`
-- `GET/POST /cases/{id}/members`
-- `GET/POST /cases/{id}/updates`
-- `GET/POST /cases/{id}/documents`
-- `POST /cases/{id}/documents/presign`
-- `POST /cases/{id}/documents/confirm`
-- `POST /cases/{id}/documents/{documentId}/download-link`
-- `GET /cases/{id}/portal-link`
-- `POST /cases/{id}/portal-link/activate`
-- `POST /cases/{id}/portal-link/revoke`
-- `POST /client-portal/session` (`token + cpfLast3`)
-- `GET /client-portal/me`
-- `GET /client-portal/case`
-- `GET /client-portal/updates` (somente `CLIENT_VISIBLE`)
-- `GET /client-portal/documents` (somente `CLIENT_VISIBLE`)
-- `POST /client-portal/documents/{documentId}/download-link`
-- `POST /client-portal/patrimony/original-document/download-link`
-- `POST /client-portal/logout`
-- `GET /documents/download?token=...` (token temporario, uso unico)
+## Responsabilidades
 
-## Banco local
-Subir Postgres via Docker:
+- autenticar usuarios internos
+- expor endpoints administrativos e do portal do cliente
+- aplicar migracoes de banco no startup
+- controlar links temporarios e sessoes do portal
+- gerar URLs assinadas para upload e download de documentos
+
+## Execucao local
+
+### Banco
+
+O repositorio inclui [`docker-compose.yml`](docker-compose.yml) para apoio ao ambiente local.
 
 ```bash
 docker compose up -d postgres
 ```
 
-Conexao default local:
-- host: `localhost`
-- porta: `5433`
-- db: `painel_cliente`
-- user: `postgres`
-- senha: `607733%`
+### API
 
-## Rodar API
 ```bash
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-API local: `http://localhost:8080`
+URL local padrao:
 
-## Usuario seed (somente profile dev)
-- email: `admin@painel.local`
-- senha: `Admin@123`
+- `http://localhost:8080`
 
-## Exemplo login
-```bash
-curl -X POST http://localhost:8080/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@painel.local","password":"Admin@123"}'
-```
+## Variaveis de ambiente
 
-## Variaveis importantes
+Principais variaveis do backend:
+
 - `DATABASE_URL`
 - `DATABASE_USER`
 - `DATABASE_PASSWORD`
@@ -83,6 +54,7 @@ curl -X POST http://localhost:8080/auth/login \
 - `APP_PORTAL_CLIENT_PATH`
 - `APP_PORTAL_DEFAULT_TTL_MINUTES`
 - `APP_PORTAL_CLIENT_SESSION_MINUTES`
+- `APP_DOCUMENT_DOWNLOAD_TOKEN_MINUTES`
 - `APP_STORAGE_ENABLED`
 - `APP_STORAGE_ENDPOINT`
 - `APP_STORAGE_REGION`
@@ -93,18 +65,19 @@ curl -X POST http://localhost:8080/auth/login \
 - `APP_STORAGE_UPLOAD_URL_MINUTES`
 - `APP_STORAGE_DOWNLOAD_URL_MINUTES`
 
-## Proxima etapa recomendada
-1. Integrar upload de documentos com storage externo (presigned URL).
-2. Adicionar revogacao/listagem administrativa de sessoes do cliente.
-3. Implementar endpoint de download seguro de documento do cliente.
-4. Cobertura automatizada de testes de integração para auth/portal.
+Detalhamento completo:
 
-## Seguranca adicional implementada
-- `audit_log` para rastrear ações de staff e cliente
-- rate-limit no `POST /client-portal/session`:
-  - bloqueio do link após 5 tentativas inválidas de CPF
-  - bloqueio por 10 minutos (`Muitas tentativas. Aguarde alguns minutos.`)
-- download seguro de documento:
-  - token temporario com expiracao curta
-  - uso unico (segunda tentativa falha)
-  - resolucao gera URL assinada S3/MinIO para download real
+- [`docs/environment.md`](../docs/environment.md)
+
+## Operacao
+
+- o healthcheck esperado esta em `/health`
+- migracoes Flyway executam no startup
+- o backend deve ser publicado na Railway com root directory `backend`
+- o frontend publicado deve estar refletido em `CORS_ALLOWED_ORIGINS` e `APP_FRONTEND_BASE_URL`
+
+## Documentacao complementar
+
+- [`docs/architecture.md`](../docs/architecture.md)
+- [`docs/deploy.md`](../docs/deploy.md)
+- [`docs/handoff.md`](../docs/handoff.md)
