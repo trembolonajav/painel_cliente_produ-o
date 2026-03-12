@@ -6,6 +6,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -18,10 +20,15 @@ public class StorageService {
     private static final Pattern SAFE_FILENAME = Pattern.compile("[^a-zA-Z0-9._-]");
 
     private final StorageProperties properties;
+    private final ObjectProvider<S3Client> s3ClientProvider;
     private final ObjectProvider<S3Presigner> presignerProvider;
 
-    public StorageService(StorageProperties properties, ObjectProvider<S3Presigner> presignerProvider) {
+    public StorageService(
+            StorageProperties properties,
+            ObjectProvider<S3Client> s3ClientProvider,
+            ObjectProvider<S3Presigner> presignerProvider) {
         this.properties = properties;
+        this.s3ClientProvider = s3ClientProvider;
         this.presignerProvider = presignerProvider;
     }
 
@@ -66,6 +73,20 @@ public class StorageService {
         return presigner.presignGetObject(presignRequest).url().toString();
     }
 
+    public void deleteObject(String storageKey) {
+        if (storageKey == null || storageKey.isBlank()) {
+            throw new IllegalArgumentException("storageKey obrigatoria para exclusao no storage.");
+        }
+
+        S3Client s3Client = requireS3Client();
+        DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest.builder()
+                .bucket(properties.bucket())
+                .key(storageKey)
+                .build();
+
+        s3Client.deleteObject(deleteObjectRequest);
+    }
+
     private S3Presigner requirePresigner() {
         if (!properties.enabled()) {
             throw new StorageUnavailableException("Storage externo desabilitado");
@@ -75,6 +96,17 @@ public class StorageService {
             throw new StorageUnavailableException("Storage externo nao inicializado");
         }
         return presigner;
+    }
+
+    private S3Client requireS3Client() {
+        if (!properties.enabled()) {
+            throw new StorageUnavailableException("Storage externo desabilitado");
+        }
+        S3Client s3Client = s3ClientProvider.getIfAvailable();
+        if (s3Client == null) {
+            throw new StorageUnavailableException("Storage externo nao inicializado");
+        }
+        return s3Client;
     }
 
     private String buildStorageKey(UUID caseId, String originalName) {

@@ -161,12 +161,20 @@ public class DocumentService {
 
         String storageKey = document.getStorageKey();
         CaseFile caseFile = document.getCaseFile();
+        boolean storageObjectDeleted = false;
+
+        if (storageKey != null && !storageKey.isBlank()) {
+            storageService.deleteObject(storageKey);
+            storageObjectDeleted = true;
+        }
+
         documentRepository.delete(document);
         refreshCaseStatus(caseFile);
 
         Map<String, Object> details = new HashMap<>();
         details.put("caseId", caseId.toString());
         details.put("hadStorageKey", storageKey != null && !storageKey.isBlank());
+        details.put("storageObjectDeleted", storageObjectDeleted);
         if (storageKey != null && !storageKey.isBlank()) {
             details.put("storageKey", storageKey);
         }
@@ -180,8 +188,10 @@ public class DocumentService {
 
         return new DocumentDeleteResponse(
                 true,
-                false,
-                "Registro removido com hard delete. Arquivo fisico pode permanecer no storage.");
+                storageObjectDeleted,
+                storageObjectDeleted
+                        ? "Registro e arquivo removidos com sucesso."
+                        : "Registro removido sem arquivo fisico vinculado.");
     }
 
     private DocumentResponse toResponse(Document document) {
