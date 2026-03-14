@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import type { CaseDocument, CaseWithComputed, User } from "@/types";
+import type { CaseWithComputed, User } from "@/types";
 import {
   createCaseRequest,
   getCasePortalLinkStatusRequest,
@@ -14,26 +14,11 @@ import {
   listUsersRequest,
   updateCaseRequest,
 } from "@/services/backend";
-import { generateId } from "@/lib/id";
-
-type NewCaseDocInput = {
-  id: string;
-  name: string;
-  type: string;
-  visibility: CaseDocument["visibility"];
-  status: CaseDocument["status"];
-  file?: File;
-};
 
 type UseDashboardCasesParams = {
   officeInitials?: string;
   user: User | null;
 };
-
-function inferDocType(fileName: string): string {
-  const ext = fileName.split(".").pop()?.toUpperCase();
-  return ext || "ARQUIVO";
-}
 
 const progressForStatus = (status: CaseWithComputed["status"]): number => {
   if (status === "concluido") return 100;
@@ -74,7 +59,6 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
   const [newCasePartnerId, setNewCasePartnerId] = useState("");
   const [newCasePriority, setNewCasePriority] = useState<CaseWithComputed["priority"]>("media");
   const [newCaseResponsible, setNewCaseResponsible] = useState("");
-  const [newCaseDocs, setNewCaseDocs] = useState<NewCaseDocInput[]>([]);
   const [allCases, setAllCases] = useState<CaseWithComputed[]>([]);
   const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
   const [partners, setPartners] = useState<Array<{ id: string; name: string }>>([]);
@@ -203,7 +187,6 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     setNewCasePartnerId("");
     setNewCasePriority("media");
     setNewCaseResponsible("");
-    setNewCaseDocs([]);
   }, []);
 
   const handleCreateDialogOpenChange = useCallback(
@@ -226,7 +209,6 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
         setNewCasePartnerId(caseItem.partnerId ?? "");
         setNewCasePriority(caseItem.priority);
         setNewCaseResponsible(owner?.userId ?? "");
-        setNewCaseDocs([]);
         setIsCreateDialogOpen(true);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao carregar dados do caso.");
@@ -234,40 +216,6 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     },
     [],
   );
-
-  const handleAddFilesToNewCase = useCallback((files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const next = Array.from(files).map((file) => ({
-      id: generateId(),
-      name: file.name,
-      type: inferDocType(file.name),
-      visibility: "interno" as const,
-      status: "disponivel" as const,
-      file,
-    }));
-    setNewCaseDocs((prev) => [...prev, ...next]);
-  }, []);
-
-  const handleAddPendingClientDoc = useCallback(() => {
-    setNewCaseDocs((prev) => [
-      ...prev,
-      {
-        id: generateId(),
-        name: "",
-        type: "PDF",
-        visibility: "cliente",
-        status: "pendente",
-      },
-    ]);
-  }, []);
-
-  const handleUpdateNewCaseDoc = useCallback((id: string, patch: Partial<NewCaseDocInput>) => {
-    setNewCaseDocs((prev) => prev.map((doc) => (doc.id === id ? { ...doc, ...patch } : doc)));
-  }, []);
-
-  const handleRemoveNewCaseDoc = useCallback((id: string) => {
-    setNewCaseDocs((prev) => prev.filter((doc) => doc.id !== id));
-  }, []);
 
   const handleCreateCase = useCallback(async () => {
     if (!user || !newCaseTitle.trim() || !newCaseClientId) return;
@@ -296,12 +244,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
           priority: newCasePriority,
           responsibleUserId: newCaseResponsible || undefined,
         });
-
-        if (newCaseDocs.length > 0) {
-          toast.info("Caso criado. Upload de documentos nesta etapa ainda será conectado ao fluxo presign.");
-        } else {
-          toast.success("Caso criado com sucesso");
-        }
+        toast.success("Caso criado com sucesso");
       }
 
       setIsCreateDialogOpen(false);
@@ -310,7 +253,7 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao salvar caso.");
     }
-  }, [editingCaseId, editingCaseStatus, newCaseClientId, newCaseDocs.length, newCasePartnerId, newCasePriority, newCaseResponsible, newCaseTitle, refresh, resetCreateForm, user]);
+  }, [editingCaseId, editingCaseStatus, newCaseClientId, newCasePartnerId, newCasePriority, newCaseResponsible, newCaseTitle, refresh, resetCreateForm, user]);
 
   return {
     filter,
@@ -331,17 +274,12 @@ export function useDashboardCases({ user }: UseDashboardCasesParams) {
     setNewCasePriority,
     newCaseResponsible,
     setNewCaseResponsible,
-    newCaseDocs,
     clients,
     partners,
     users,
     handleCreateCase,
     handleStartEditingCase,
     handleCreateDialogOpenChange,
-    handleAddFilesToNewCase,
-    handleAddPendingClientDoc,
-    handleUpdateNewCaseDoc,
-    handleRemoveNewCaseDoc,
   };
 }
 

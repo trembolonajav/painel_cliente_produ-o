@@ -67,17 +67,12 @@ const Dashboard = () => {
     setNewCasePriority,
     newCaseResponsible,
     setNewCaseResponsible,
-    newCaseDocs,
     clients,
     partners,
     users,
     handleCreateCase,
     handleStartEditingCase,
     handleCreateDialogOpenChange,
-    handleAddFilesToNewCase,
-    handleAddPendingClientDoc,
-    handleUpdateNewCaseDoc,
-    handleRemoveNewCaseDoc,
   } = useDashboardCases({ officeInitials: office?.initials, user });
   const [deletingCaseId, setDeletingCaseId] = useState<string | null>(null);
 
@@ -230,64 +225,6 @@ const Dashboard = () => {
                         </SelectContent>
                       </Select>
                     </div>
-                    {!editingCaseId && (
-                    <div className="space-y-2">
-                      <Label htmlFor="new-case-doc-upload">Documentos</Label>
-                      <Input
-                        id="new-case-doc-upload"
-                        type="file"
-                        multiple
-                        onChange={(e) => {
-                          handleAddFilesToNewCase(e.target.files);
-                          e.currentTarget.value = "";
-                        }}
-                      />
-                      <div className="flex justify-end">
-                        <Button variant="outline" onClick={handleAddPendingClientDoc}>Adicionar pendência do cliente</Button>
-                      </div>
-                      {newCaseDocs.length > 0 && (
-                        <div className="space-y-2 max-h-52 overflow-auto pr-1">
-                          {newCaseDocs.map((doc) => (
-                            <div key={doc.id} className="border rounded-lg p-3 space-y-2">
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  value={doc.name}
-                                  onChange={(e) => handleUpdateNewCaseDoc(doc.id, { name: e.target.value })}
-                                  placeholder="Nome do documento"
-                                />
-                                <button
-                                  onClick={() => handleRemoveNewCaseDoc(doc.id)}
-                                  className="px-2 py-2 border rounded-md text-muted-foreground hover:text-foreground"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <Select value={doc.visibility} onValueChange={(value) => handleUpdateNewCaseDoc(doc.id, { visibility: value as "cliente" | "interno" })}>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="interno">Interno</SelectItem>
-                                    <SelectItem value="cliente">Visível ao cliente</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <Select value={doc.status} onValueChange={(value) => handleUpdateNewCaseDoc(doc.id, { status: value as "disponivel" | "pendente" })}>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="disponivel">Disponível</SelectItem>
-                                    <SelectItem value="pendente">Pendente</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    )}
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => handleCreateDialogOpenChange(false)}>Cancelar</Button>
