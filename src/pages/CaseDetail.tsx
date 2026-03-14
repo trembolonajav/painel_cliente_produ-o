@@ -4,7 +4,7 @@ import {
   ArrowLeft, Clock, CheckCircle2, AlertTriangle, AlertCircle, ExternalLink,
   FileText, Copy, Bell, RefreshCw, Download, Eye, Plus,
   CircleDot, Circle, Check, User, Users, Calendar, Trash2, Handshake,
-  ChevronDown, ChevronRight, ArrowUp, ArrowDown, Pencil, X
+  ChevronDown, ChevronRight, ArrowUp, ArrowDown, Pencil
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import type { CaseWithComputed, CaseStage } from "@/types";
@@ -20,6 +20,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 const statusConfig: Record<CaseWithComputed["status"], { label: string; class: string; icon: typeof Clock }> = {
   em_andamento: { label: "Em andamento", class: "status-progress", icon: Clock },
@@ -49,12 +60,6 @@ const tabs = [
   { key: "portal", label: "Portal do Cliente" },
 ];
 
-const stageStatusText: Record<CaseStage["status"], string> = {
-  pendente: "Pendente",
-  em_andamento: "Em andamento",
-  concluido: "Concluída",
-};
-
 type PendingDelete = {
   kind: "stage" | "substep" | "task" | "document" | "update";
   id: string;
@@ -78,6 +83,8 @@ const CaseDetail = () => {
     setNewSubstepTitle,
     newSubstepDescriptions,
     setNewSubstepDescription,
+    newSubstepVisibleToClient,
+    setNewSubstepVisibility,
     newTaskLabel,
     setNewTaskLabel,
     newUpdateText,
@@ -99,7 +106,6 @@ const CaseDetail = () => {
     handleSubstepStatusChange,
     handleSubstepReorder,
     handleSubstepUpdate,
-    handleSubstepVisibilityChange,
     handleDeleteSubstep,
     handleStageClick,
     handleStageReorder,
@@ -130,6 +136,9 @@ const CaseDetail = () => {
   const [substepVisibilityDrafts, setSubstepVisibilityDrafts] = useState<Record<string, boolean>>({});
   const [editingSubstepId, setEditingSubstepId] = useState<string | null>(null);
   const [savingSubstepId, setSavingSubstepId] = useState<string | null>(null);
+  const [createStageDialogOpen, setCreateStageDialogOpen] = useState(false);
+  const [createStageParentId, setCreateStageParentId] = useState<string | null>(null);
+  const [stageDialogMode, setStageDialogMode] = useState<"create-stage" | "edit-stage" | "create-substep" | "edit-substep">("create-stage");
 
   useEffect(() => {
     if (!caseData?.stages) return;
@@ -154,10 +163,6 @@ const CaseDetail = () => {
     setSubstepVisibilityDrafts(nextVisibility);
   }, [caseData]);
 
-  const startEditingStage = (stageId: string) => {
-    setEditingStageId(stageId);
-  };
-
   const cancelEditingStage = (stageId: string, name: string, description?: string) => {
     setStageNameDrafts((prev) => ({ ...prev, [stageId]: name }));
     setStageDescriptionDrafts((prev) => ({ ...prev, [stageId]: description ?? "" }));
@@ -177,10 +182,6 @@ const CaseDetail = () => {
     } finally {
       setSavingStageId(null);
     }
-  };
-
-  const startEditingSubstep = (substepId: string) => {
-    setEditingSubstepId(substepId);
   };
 
   const cancelEditingSubstep = (substepId: string, title: string, description?: string, visibleToClient?: boolean) => {
@@ -213,6 +214,93 @@ const CaseDetail = () => {
       else next.add(stageId);
       return next;
     });
+  };
+
+  const openCreateStageDialog = (stageId?: string) => {
+    setStageDialogMode(stageId ? "create-substep" : "create-stage");
+    setEditingStageId(null);
+    setEditingSubstepId(null);
+    setCreateStageParentId(stageId ?? null);
+    if (stageId) {
+      setNewSubstepVisibility(stageId, newSubstepVisibleToClient[stageId] ?? false);
+    }
+    setCreateStageDialogOpen(true);
+  };
+
+  const openEditStageDialog = (stage: CaseStage) => {
+    setStageDialogMode("edit-stage");
+    setEditingSubstepId(null);
+    setEditingStageId(stage.id);
+    setStageNameDrafts((prev) => ({ ...prev, [stage.id]: stage.name }));
+    setStageDescriptionDrafts((prev) => ({ ...prev, [stage.id]: stage.description ?? "" }));
+    setCreateStageParentId(null);
+    setCreateStageDialogOpen(true);
+  };
+
+  const openEditSubstepDialog = (stageId: string, substep: NonNullable<CaseStage["substeps"]>[number]) => {
+    setStageDialogMode("edit-substep");
+    setEditingStageId(null);
+    setEditingSubstepId(substep.id);
+    setCreateStageParentId(stageId);
+    setSubstepTitleDrafts((prev) => ({ ...prev, [substep.id]: substep.title }));
+    setSubstepDescriptionDrafts((prev) => ({ ...prev, [substep.id]: substep.description ?? "" }));
+    setSubstepVisibilityDrafts((prev) => ({ ...prev, [substep.id]: substep.visibleToClient }));
+    setCreateStageDialogOpen(true);
+  };
+
+  const handleCreateDialogOpenChange = (open: boolean) => {
+    setCreateStageDialogOpen(open);
+    if (!open) {
+      if (editingStageId && caseData) {
+        const stage = caseData.stages.find((item) => item.id === editingStageId);
+        if (stage) {
+          cancelEditingStage(stage.id, stage.name, stage.description);
+        } else {
+          setEditingStageId(null);
+        }
+      }
+      if (editingSubstepId && caseData) {
+        const substep = caseData.stages.flatMap((stage) => stage.substeps ?? []).find((item) => item.id === editingSubstepId);
+        if (substep) {
+          cancelEditingSubstep(substep.id, substep.title, substep.description, substep.visibleToClient);
+        } else {
+          setEditingSubstepId(null);
+        }
+      }
+      setCreateStageParentId(null);
+      setStageDialogMode("create-stage");
+    }
+  };
+
+  const handleSubmitCreateStage = async () => {
+    if (stageDialogMode === "edit-stage" && editingStageId && caseData) {
+      const stage = caseData.stages.find((item) => item.id === editingStageId);
+      if (!stage || !(stageNameDrafts[stage.id] ?? "").trim()) return;
+      await saveEditingStage(stage);
+      handleCreateDialogOpenChange(false);
+      return;
+    }
+
+    if (stageDialogMode === "edit-substep" && editingSubstepId && caseData) {
+      const substep = caseData.stages.flatMap((stage) => stage.substeps ?? []).find((item) => item.id === editingSubstepId);
+      if (!substep || !(substepTitleDrafts[substep.id] ?? "").trim()) return;
+      await saveEditingSubstep(substep);
+      handleCreateDialogOpenChange(false);
+      return;
+    }
+
+    if (createStageParentId) {
+      await handleAddSubstep(createStageParentId);
+      if ((newSubstepTitles[createStageParentId] ?? "").trim()) {
+        handleCreateDialogOpenChange(false);
+      }
+      return;
+    }
+
+    await handleAddStage();
+    if (newStageName.trim()) {
+      handleCreateDialogOpenChange(false);
+    }
   };
 
   const confirmDelete = async () => {
@@ -250,6 +338,12 @@ const CaseDetail = () => {
   const StatusIcon = sc.icon;
   const pendingDocuments = caseData.documents.filter((doc) => doc.status === "pendente");
   const availableDocuments = caseData.documents.filter((doc) => doc.status === "disponivel");
+  const editingStage = editingStageId ? caseData.stages.find((stage) => stage.id === editingStageId) ?? null : null;
+  const editingSubstep = editingSubstepId
+    ? caseData.stages.flatMap((stage) => stage.substeps ?? []).find((substep) => substep.id === editingSubstepId) ?? null
+    : null;
+  const isSubstepDialog = stageDialogMode === "create-substep" || stageDialogMode === "edit-substep";
+  const isEditingDialog = stageDialogMode === "edit-stage" || stageDialogMode === "edit-substep";
 
   return (
     <div className="min-h-screen bg-background">
@@ -313,55 +407,15 @@ const CaseDetail = () => {
         {activeTab === "andamento" && (
           <div className="grid lg:grid-cols-3 gap-6 animate-fade-in">
             <div className="lg:col-span-2 bg-card rounded-xl border p-6">
-              <div className="mb-5 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="font-heading font-bold text-foreground">Etapas do Processo</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Acompanhe a linha do processo com etapas e subetapas na ordem real do caso.
-                  </p>
-                </div>
-              </div>
-              {can("stages_write") && (
-                <div className="mb-6 rounded-2xl border border-border/70 bg-muted/20 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    <Plus className="h-3.5 w-3.5" />
-                    Nova etapa
-                  </div>
-                  <div className="space-y-2">
-                  <input
-                    value={newStageName}
-                    onChange={(e) => setNewStageName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleAddStage()}
-                    placeholder="Nome da nova etapa..."
-                    className="input-field text-sm"
-                  />
-                  <input
-                    value={newStageDescription}
-                    onChange={(e) => setNewStageDescription(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleAddStage()}
-                    placeholder="Descrição da etapa (opcional)..."
-                    className="input-field text-sm"
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      onClick={handleAddStage}
-                      className="btn-gold px-4 py-2 text-sm flex items-center gap-1"
-                      disabled={!newStageName.trim()}
-                    >
-                      <Plus className="w-4 h-4" /> Adicionar etapa
-                    </button>
-                  </div>
-                </div>
-                </div>
-              )}
-              <div className="space-y-1">
+              <h2 className="font-heading font-bold text-foreground mb-5">Etapas do Processo</h2>
+              <div className="space-y-0">
                 {caseData.stages.map((stage, i) => {
                   const hasSubsteps = !!stage.substeps?.length;
                   const isExpanded = !hasSubsteps || expandedStages.has(stage.id);
                   const completedSubsteps = stage.substeps?.filter((substep) => substep.status === "concluido").length ?? 0;
                   return (
                     <div key={stage.id} className="group/stage">
-                      <div className="flex gap-4 py-5">
+                      <div className="flex gap-4">
                         <div className="flex flex-col items-center pt-0.5">
                           <button
                             onClick={() => handleStageClick(stage)}
@@ -386,113 +440,77 @@ const CaseDetail = () => {
                             />
                           )}
                         </div>
-                        <div className={`min-w-0 flex-1 ${stage.status === "pendente" ? "opacity-60" : ""}`}>
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className={`pb-4 min-w-0 flex-1 ${stage.status === "pendente" ? "opacity-60" : ""}`}>
+                          <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                {editingStageId === stage.id ? (
-                                  <input
-                                    value={stageNameDrafts[stage.id] ?? ""}
-                                    onChange={(e) => setStageNameDrafts((prev) => ({ ...prev, [stage.id]: e.target.value }))}
-                                    className="input-field h-8 min-w-[240px] max-w-md text-sm"
-                                    placeholder="Nome da etapa"
-                                  />
-                                ) : (
-                                  <h3 className={`text-sm font-heading font-semibold tracking-[-0.02em] ${
-                                    stage.status === "em_andamento"
-                                      ? "text-gold"
-                                      : stage.status === "pendente"
-                                        ? "text-foreground/65"
-                                        : "text-foreground"
-                                  }`}>
-                                    {stage.name}
-                                  </h3>
-                                )}
-                                <span className="rounded-full border border-border/70 px-2.5 py-0.5 text-[11px] text-muted-foreground">
-                                  {stageStatusText[stage.status]}
-                                </span>
-                                {stage.date && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {stage.date}
-                                  </span>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <h3 className={`text-sm font-heading font-semibold tracking-[-0.02em] ${
+                                  stage.status === "em_andamento"
+                                    ? "text-gold"
+                                    : stage.status === "pendente"
+                                      ? "text-foreground/65"
+                                      : "text-foreground"
+                                }`}>
+                                  {stage.name}
+                                </h3>
+                                {hasSubsteps && (
+                                  <button
+                                    onClick={() => toggleExpand(stage.id)}
+                                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded-md hover:bg-muted"
+                                  >
+                                    {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                    <span>
+                                      {completedSubsteps}/{stage.substeps?.length} sub-etapas
+                                    </span>
+                                  </button>
                                 )}
                               </div>
-                              {editingStageId === stage.id ? (
-                                <textarea
-                                  value={stageDescriptionDrafts[stage.id] ?? ""}
-                                  onChange={(e) => setStageDescriptionDrafts((prev) => ({ ...prev, [stage.id]: e.target.value }))}
-                                  className="input-field mt-2 min-h-[84px] max-w-3xl resize-y text-xs leading-6"
-                                  placeholder="Descrição da etapa..."
-                                />
-                              ) : (
-                                stage.description && (
-                                  <p className="mt-1.5 max-w-3xl text-xs leading-6 text-muted-foreground">
-                                    {stage.description}
-                                  </p>
-                                )
-                              )}
-                              {hasSubsteps && (
-                                <button
-                                  onClick={() => toggleExpand(stage.id)}
-                                  className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
-                                >
-                                  {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                  <span>
-                                    {completedSubsteps}/{stage.substeps?.length} sub-etapas
-                                  </span>
-                                </button>
+                              {stage.description && (
+                                <p className="mt-1.5 max-w-3xl text-xs leading-6 text-muted-foreground">
+                                  {stage.description}
+                                </p>
                               )}
                             </div>
                             {can("stages_write") && (
-                              <div className="flex items-start justify-end gap-3 shrink-0">
-                                <div className={`flex items-center gap-1 rounded-full border border-border/70 px-1 py-1 transition duration-200 ${
-                                  canReorderStages ? "opacity-0 group-hover/stage:opacity-100" : "opacity-30"
+                              <div className="flex items-center gap-1 shrink-0">
+                                {stage.date && <span className="text-xs text-muted-foreground mr-1">{stage.date}</span>}
+                                <div className={`flex items-center gap-0.5 opacity-0 group-hover/stage:opacity-100 transition-opacity ${
+                                  canReorderStages ? "" : "opacity-30"
                                 }`}>
                                   <button
+                                    onClick={() => {
+                                      setExpandedStages((prev) => new Set(prev).add(stage.id));
+                                      openCreateStageDialog(stage.id);
+                                    }}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-gold transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                                    title="Adicionar sub-etapa"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
                                     onClick={() => handleStageReorder(stage, "up")}
-                                    disabled={!canReorderStages || isReordering || editingStageId === stage.id || i === 0}
-                                    className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+                                    disabled={!canReorderStages || isReordering || i === 0}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                                     title="Mover para cima"
                                   >
                                     <ArrowUp className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={() => handleStageReorder(stage, "down")}
-                                    disabled={!canReorderStages || isReordering || editingStageId === stage.id || i === caseData.stages.length - 1}
-                                    className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+                                    disabled={!canReorderStages || isReordering || i === caseData.stages.length - 1}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                                     title="Mover para baixo"
                                   >
                                     <ArrowDown className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
-                                {editingStageId === stage.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => saveEditingStage(stage)}
-                                      disabled={!stageNameDrafts[stage.id]?.trim() || savingStageId === stage.id}
-                                      className="rounded-full p-1 text-muted-foreground/80 transition hover:text-[hsl(152_55%_39%)] disabled:opacity-40 disabled:cursor-not-allowed"
-                                      title="Salvar etapa"
-                                    >
-                                      <Check className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => cancelEditingStage(stage.id, stage.name, stage.description)}
-                                      disabled={savingStageId === stage.id}
-                                      className="rounded-full p-1 text-muted-foreground/80 transition hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
-                                      title="Cancelar edição"
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => startEditingStage(stage.id)}
-                                    className="rounded-full p-1 text-muted-foreground/70 transition hover:text-foreground"
-                                    title="Editar etapa"
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => openEditStageDialog(stage)}
+                                  className="rounded-full p-1 text-muted-foreground/70 transition hover:text-foreground"
+                                  title="Editar etapa"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
                                 <button
                                   onClick={() =>
                                     setPendingDelete({
@@ -511,7 +529,7 @@ const CaseDetail = () => {
                             )}
                           </div>
 
-                          {isExpanded && (
+                          {hasSubsteps && isExpanded && (
                             <div className="ml-10 mt-4 border-l border-border/60 pl-8">
                               {hasSubsteps ? (
                                 <div className="space-y-5">
@@ -546,28 +564,15 @@ const CaseDetail = () => {
                                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                             <div className="min-w-0 flex-1">
                                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                {editingSubstepId === substep.id ? (
-                                                  <input
-                                                    value={substepTitleDrafts[substep.id] ?? substep.title}
-                                                    onChange={(e) =>
-                                                      setSubstepTitleDrafts((prev) => ({
-                                                        ...prev,
-                                                        [substep.id]: e.target.value,
-                                                      }))
-                                                    }
-                                                    className="input-field h-9 max-w-sm text-sm"
-                                                  />
-                                                ) : (
-                                                  <h4 className={`text-sm font-medium ${
-                                                    substep.status === "em_andamento"
-                                                      ? "text-foreground"
-                                                      : substep.status === "pendente"
-                                                        ? "text-foreground/75"
-                                                        : "text-foreground"
-                                                  }`}>
-                                                    {substep.title}
-                                                  </h4>
-                                                )}
+                                                <h4 className={`text-sm font-medium ${
+                                                  substep.status === "em_andamento"
+                                                    ? "text-foreground"
+                                                    : substep.status === "pendente"
+                                                      ? "text-foreground/75"
+                                                      : "text-foreground"
+                                                }`}>
+                                                  {substep.title}
+                                                </h4>
                                                 <span className="text-xs text-muted-foreground">
                                                   #{substep.order}
                                                 </span>
@@ -577,79 +582,31 @@ const CaseDetail = () => {
                                                   </span>
                                                 )}
                                               </div>
-                                              {editingSubstepId !== substep.id && substep.description && (
+                                              {substep.description && (
                                                 <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
                                                   {substep.description}
                                                 </p>
                                               )}
-                                              {can("stages_write") && editingSubstepId === substep.id && (
-                                                <textarea
-                                                  value={substepDescriptionDrafts[substep.id] ?? ""}
-                                                  onChange={(e) =>
-                                                    setSubstepDescriptionDrafts((prev) => ({
-                                                      ...prev,
-                                                      [substep.id]: e.target.value,
-                                                    }))
-                                                  }
-                                                  placeholder="Descrição da subetapa..."
-                                                  className="mt-1 min-h-[56px] w-full resize-none rounded-xl border border-border/60 bg-background px-3 py-2 text-xs leading-5 text-muted-foreground outline-none transition focus:border-gold/40"
-                                                />
-                                              )}
                                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                <label className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1.5 text-[11px] text-muted-foreground transition hover:border-border">
-                                                  <input
-                                                    type="checkbox"
-                                                    className="h-3.5 w-3.5 accent-gold"
-                                                    checked={editingSubstepId === substep.id ? (substepVisibilityDrafts[substep.id] ?? substep.visibleToClient) : substep.visibleToClient}
-                                                    onChange={(e) =>
-                                                      editingSubstepId === substep.id
-                                                        ? setSubstepVisibilityDrafts((prev) => ({
-                                                            ...prev,
-                                                            [substep.id]: e.target.checked,
-                                                          }))
-                                                        : handleSubstepVisibilityChange(substep, e.target.checked)
-                                                    }
-                                                    disabled={!can("stages_write") || savingSubstepId === substep.id}
-                                                  />
-                                                  Visível ao cliente
-                                                </label>
+                                                <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1.5 text-[11px] text-muted-foreground">
+                                                  {substep.visibleToClient ? "Visível ao cliente" : "Interno"}
+                                                </span>
                                               </div>
                                             </div>
                                             {can("stages_write") && (
                                               <div className={`flex items-center gap-1 transition duration-200 ${
                                                 canReorderStages ? "opacity-0 group-hover/sub:opacity-100" : "opacity-30"
                                               }`}>
-                                                {editingSubstepId === substep.id ? (
-                                                  <>
-                                                    <button
-                                                      onClick={() => void saveEditingSubstep(substep)}
-                                                      disabled={savingSubstepId === substep.id || !(substepTitleDrafts[substep.id] ?? "").trim()}
-                                                      className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
-                                                      title="Salvar subetapa"
-                                                    >
-                                                      <Check className="w-3.5 h-3.5" />
-                                                    </button>
-                                                    <button
-                                                      onClick={() => cancelEditingSubstep(substep.id, substep.title, substep.description, substep.visibleToClient)}
-                                                      disabled={savingSubstepId === substep.id}
-                                                      className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
-                                                      title="Cancelar edição"
-                                                    >
-                                                      <X className="w-3.5 h-3.5" />
-                                                    </button>
-                                                  </>
-                                                ) : (
-                                                  <button
-                                                    onClick={() => startEditingSubstep(substep.id)}
-                                                    className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
-                                                    title="Editar subetapa"
-                                                  >
-                                                    <Pencil className="w-3.5 h-3.5" />
-                                                  </button>
-                                                )}
+                                                <button
+                                                  onClick={() => openEditSubstepDialog(stage.id, substep)}
+                                                  className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                                                  title="Editar subetapa"
+                                                >
+                                                  <Pencil className="w-3.5 h-3.5" />
+                                                </button>
                                                 <button
                                                   onClick={() => handleSubstepReorder(stage.id, substep, "up")}
-                                                  disabled={!canReorderStages || isReordering || editingSubstepId === substep.id || substepIndex === 0}
+                                                  disabled={!canReorderStages || isReordering || substepIndex === 0}
                                                   className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                                                   title="Mover para cima"
                                                 >
@@ -657,7 +614,7 @@ const CaseDetail = () => {
                                                 </button>
                                                 <button
                                                   onClick={() => handleSubstepReorder(stage.id, substep, "down")}
-                                                  disabled={!canReorderStages || isReordering || editingSubstepId === substep.id || substepIndex === (stage.substeps?.length ?? 0) - 1}
+                                                  disabled={!canReorderStages || isReordering || substepIndex === (stage.substeps?.length ?? 0) - 1}
                                                   className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                                                   title="Mover para baixo"
                                                 >
@@ -690,28 +647,12 @@ const CaseDetail = () => {
                               )}
 
                               {can("stages_write") && (
-                                <div className="mt-5 flex gap-2">
-                                  <div className="flex-1 space-y-2">
-                                    <input
-                                      value={newSubstepTitles[stage.id] ?? ""}
-                                      onChange={(e) => setNewSubstepTitle(stage.id, e.target.value)}
-                                      onKeyDown={(e) => e.key === "Enter" && handleAddSubstep(stage.id)}
-                                      placeholder="Nova subetapa..."
-                                      className="input-field h-10 text-sm"
-                                    />
-                                    <textarea
-                                      value={newSubstepDescriptions[stage.id] ?? ""}
-                                      onChange={(e) => setNewSubstepDescription(stage.id, e.target.value)}
-                                      placeholder="Descrição da subetapa..."
-                                      className="input-field min-h-[64px] resize-none text-xs leading-5"
-                                    />
-                                  </div>
+                                <div className="mt-5 flex justify-start">
                                   <button
-                                    onClick={() => handleAddSubstep(stage.id)}
-                                    className="h-10 rounded-full border border-border/70 px-4 text-sm text-muted-foreground transition hover:border-gold/40 hover:text-foreground disabled:opacity-50"
-                                    disabled={!(newSubstepTitles[stage.id] ?? "").trim()}
+                                    onClick={() => openCreateStageDialog(stage.id)}
+                                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-gold transition-colors py-2 pl-1"
                                   >
-                                    Adicionar
+                                    <Plus className="w-3 h-3" /> Adicionar sub-etapa
                                   </button>
                                 </div>
                               )}
@@ -726,6 +667,14 @@ const CaseDetail = () => {
                   <div className="text-sm text-muted-foreground">
                     Nenhuma etapa cadastrada ainda.
                   </div>
+                )}
+                {can("stages_write") && (
+                  <button
+                    onClick={() => openCreateStageDialog()}
+                    className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-lg border-2 border-dashed border-border hover:border-gold/50 text-sm text-muted-foreground hover:text-gold transition-all"
+                  >
+                    <Plus className="w-4 h-4" /> Nova etapa
+                  </button>
                 )}
               </div>
             </div>
@@ -1120,6 +1069,169 @@ const CaseDetail = () => {
           </div>
         )}
       </div>
+
+      <Dialog open={createStageDialogOpen} onOpenChange={handleCreateDialogOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">
+              {stageDialogMode === "edit-substep"
+                ? "Editar Sub-etapa"
+                : stageDialogMode === "edit-stage"
+                  ? "Editar Etapa"
+                  : stageDialogMode === "create-substep"
+                    ? "Nova Sub-etapa"
+                    : "Nova Etapa"}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground text-sm">
+              {stageDialogMode === "edit-substep"
+                ? "Atualize a sub-etapa selecionada."
+                : stageDialogMode === "edit-stage"
+                  ? "Atualize a etapa selecionada."
+                  : stageDialogMode === "create-substep"
+                    ? "Adicione uma sub-etapa dentro da etapa selecionada."
+                    : "Adicione uma nova etapa ao processo."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {isSubstepDialog ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="stage-name">Nome *</Label>
+                  <Input
+                    id="stage-name"
+                    value={
+                      stageDialogMode === "edit-substep" && editingSubstepId
+                        ? (substepTitleDrafts[editingSubstepId] ?? editingSubstep?.title ?? "")
+                        : (createStageParentId ? (newSubstepTitles[createStageParentId] ?? "") : "")
+                    }
+                    onChange={(e) => {
+                      if (stageDialogMode === "edit-substep" && editingSubstepId) {
+                        setSubstepTitleDrafts((prev) => ({ ...prev, [editingSubstepId]: e.target.value }));
+                        return;
+                      }
+                      if (createStageParentId) {
+                        setNewSubstepTitle(createStageParentId, e.target.value);
+                      }
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && void handleSubmitCreateStage()}
+                    placeholder="Ex: Conferência de documentos"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="stage-desc">Descrição</Label>
+                  <textarea
+                    id="stage-desc"
+                    value={
+                      stageDialogMode === "edit-substep" && editingSubstepId
+                        ? (substepDescriptionDrafts[editingSubstepId] ?? editingSubstep?.description ?? "")
+                        : (createStageParentId ? (newSubstepDescriptions[createStageParentId] ?? "") : "")
+                    }
+                    onChange={(e) => {
+                      if (stageDialogMode === "edit-substep" && editingSubstepId) {
+                        setSubstepDescriptionDrafts((prev) => ({ ...prev, [editingSubstepId]: e.target.value }));
+                        return;
+                      }
+                      if (createStageParentId) {
+                        setNewSubstepDescription(createStageParentId, e.target.value);
+                      }
+                    }}
+                    placeholder="Descreva brevemente esta subetapa..."
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-none"
+                    rows={2}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="stage-visible" className="text-sm">Visível ao cliente</Label>
+                    <p className="text-[11px] text-muted-foreground">Aparecerá no portal do cliente</p>
+                  </div>
+                  <Switch
+                    id="stage-visible"
+                    checked={
+                      stageDialogMode === "edit-substep" && editingSubstepId
+                        ? (substepVisibilityDrafts[editingSubstepId] ?? editingSubstep?.visibleToClient ?? false)
+                        : (createStageParentId ? (newSubstepVisibleToClient[createStageParentId] ?? false) : false)
+                    }
+                    onCheckedChange={(checked) => {
+                      if (stageDialogMode === "edit-substep" && editingSubstepId) {
+                        setSubstepVisibilityDrafts((prev) => ({ ...prev, [editingSubstepId]: checked }));
+                        return;
+                      }
+                      if (createStageParentId) {
+                        setNewSubstepVisibility(createStageParentId, checked);
+                      }
+                    }}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="stage-name">Nome *</Label>
+                  <Input
+                    id="stage-name"
+                    value={stageDialogMode === "edit-stage" && editingStageId ? (stageNameDrafts[editingStageId] ?? editingStage?.name ?? "") : newStageName}
+                    onChange={(e) => {
+                      if (stageDialogMode === "edit-stage" && editingStageId) {
+                        setStageNameDrafts((prev) => ({ ...prev, [editingStageId]: e.target.value }));
+                        return;
+                      }
+                      setNewStageName(e.target.value);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && void handleSubmitCreateStage()}
+                    placeholder="Ex: Registro na Junta Comercial"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="stage-desc">Descrição</Label>
+                  <textarea
+                    id="stage-desc"
+                    value={
+                      stageDialogMode === "edit-stage" && editingStageId
+                        ? (stageDescriptionDrafts[editingStageId] ?? editingStage?.description ?? "")
+                        : newStageDescription
+                    }
+                    onChange={(e) => {
+                      if (stageDialogMode === "edit-stage" && editingStageId) {
+                        setStageDescriptionDrafts((prev) => ({ ...prev, [editingStageId]: e.target.value }));
+                        return;
+                      }
+                      setNewStageDescription(e.target.value);
+                    }}
+                    placeholder="Descreva brevemente esta etapa..."
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-none"
+                    rows={2}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => handleCreateDialogOpenChange(false)}
+              className="px-4 py-2 text-sm border rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => void handleSubmitCreateStage()}
+              disabled={
+                isSubstepDialog
+                  ? (stageDialogMode === "edit-substep"
+                    ? !(editingSubstepId ? (substepTitleDrafts[editingSubstepId] ?? "").trim() : "")
+                    : !(createStageParentId ? (newSubstepTitles[createStageParentId] ?? "").trim() : ""))
+                  : (stageDialogMode === "edit-stage"
+                    ? !(editingStageId ? (stageNameDrafts[editingStageId] ?? "").trim() : "")
+                    : !newStageName.trim())
+              }
+              className="btn-gold px-4 py-2 text-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {!isEditingDialog && <Plus className="w-4 h-4" />}
+              {isEditingDialog ? "Salvar" : `Criar ${isSubstepDialog ? "sub-etapa" : "etapa"}`}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <AlertDialogContent>

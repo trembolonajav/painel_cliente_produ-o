@@ -188,6 +188,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
   const [newStageDescription, setNewStageDescription] = useState("");
   const [newSubstepTitles, setNewSubstepTitles] = useState<Record<string, string>>({});
   const [newSubstepDescriptions, setNewSubstepDescriptions] = useState<Record<string, string>>({});
+  const [newSubstepVisibleToClient, setNewSubstepVisibleToClient] = useState<Record<string, boolean>>({});
   const [newTaskLabel, setNewTaskLabel] = useState("");
   const [newUpdateText, setNewUpdateText] = useState("");
   const [newDocName, setNewDocName] = useState("");
@@ -332,6 +333,10 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     setNewSubstepDescriptions((prev) => ({ ...prev, [stageId]: value }));
   }, []);
 
+  const setNewSubstepVisibility = useCallback((stageId: string, value: boolean) => {
+    setNewSubstepVisibleToClient((prev) => ({ ...prev, [stageId]: value }));
+  }, []);
+
   const handleAddSubstep = useCallback(
     async (stageId: string) => {
       if (!can("stages_write")) return;
@@ -345,17 +350,18 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           description: description || undefined,
           position: nextPosition,
           status: "PENDING",
-          visibleToClient: false,
+          visibleToClient: newSubstepVisibleToClient[stageId] ?? false,
         });
         setNewSubstepTitles((prev) => ({ ...prev, [stageId]: "" }));
         setNewSubstepDescriptions((prev) => ({ ...prev, [stageId]: "" }));
+        setNewSubstepVisibleToClient((prev) => ({ ...prev, [stageId]: false }));
         toast.success("Subprocesso adicionado");
         refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao criar subprocesso.");
       }
     },
-    [can, newSubstepDescriptions, newSubstepTitles, refresh, stageSubsteps],
+    [can, newSubstepDescriptions, newSubstepTitles, newSubstepVisibleToClient, refresh, stageSubsteps],
   );
 
   const handleSubstepStatusChange = useCallback(
@@ -805,6 +811,8 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     setNewSubstepTitle,
     newSubstepDescriptions,
     setNewSubstepDescription,
+    newSubstepVisibleToClient,
+    setNewSubstepVisibility,
     newTaskLabel,
     setNewTaskLabel,
     newUpdateText,
