@@ -158,6 +158,7 @@ public class ClientPortalSessionService {
                 c.getTitle(),
                 c.getCaseNumber(),
                 c.getArea(),
+                c.getCurrentStatus(),
                 c.getStatus(),
                 c.getPriority(),
                 c.getUpdatedAt(),

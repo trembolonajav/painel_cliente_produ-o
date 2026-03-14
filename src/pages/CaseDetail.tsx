@@ -9,7 +9,9 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import type { CaseWithComputed, CaseStage } from "@/types";
 import { useCaseDetail } from "@/hooks/use-case-detail";
+import { updateCaseRequest } from "@/services/backend";
 import PatrimonyBuilder from "@/components/patrimony/PatrimonyBuilder";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -134,6 +136,8 @@ const CaseDetail = () => {
   const [substepDescriptionDrafts, setSubstepDescriptionDrafts] = useState<Record<string, string>>({});
   const [substepTitleDrafts, setSubstepTitleDrafts] = useState<Record<string, string>>({});
   const [substepVisibilityDrafts, setSubstepVisibilityDrafts] = useState<Record<string, boolean>>({});
+  const [currentStatusDraft, setCurrentStatusDraft] = useState("");
+  const [savingCurrentStatus, setSavingCurrentStatus] = useState(false);
   const [editingSubstepId, setEditingSubstepId] = useState<string | null>(null);
   const [savingSubstepId, setSavingSubstepId] = useState<string | null>(null);
   const [createStageDialogOpen, setCreateStageDialogOpen] = useState(false);
@@ -162,6 +166,10 @@ const CaseDetail = () => {
     setSubstepTitleDrafts(nextTitles);
     setSubstepVisibilityDrafts(nextVisibility);
   }, [caseData]);
+
+  useEffect(() => {
+    setCurrentStatusDraft(caseData?.currentStatus ?? "");
+  }, [caseData?.currentStatus]);
 
   const cancelEditingStage = (stageId: string, name: string, description?: string) => {
     setStageNameDrafts((prev) => ({ ...prev, [stageId]: name }));
@@ -300,6 +308,28 @@ const CaseDetail = () => {
     await handleAddStage();
     if (newStageName.trim()) {
       handleCreateDialogOpenChange(false);
+    }
+  };
+
+  const handleSaveCurrentStatus = async () => {
+    if (!caseData || savingCurrentStatus) return;
+    setSavingCurrentStatus(true);
+    try {
+      await updateCaseRequest(caseData.id, {
+        clientId: caseData.clientId,
+        partnerId: caseData.partnerId,
+        title: caseData.title,
+        caseNumber: caseData.caseNumber,
+        area: caseData.subtitle || undefined,
+        currentStatus: currentStatusDraft.trim() || undefined,
+        status: caseData.status,
+        priority: caseData.priority,
+      });
+      toast.success("Status atual salvo");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar status atual.");
+    } finally {
+      setSavingCurrentStatus(false);
     }
   };
 
@@ -700,6 +730,31 @@ const CaseDetail = () => {
                     <div><dt className="text-xs text-muted-foreground">Última atualização</dt><dd className="text-foreground">{caseData.lastUpdate}</dd></div>
                   </div>
                 </dl>
+              </div>
+
+              <div className="bg-card rounded-xl border p-5">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Status Atual</h3>
+                <div className="space-y-3">
+                  <textarea
+                    value={currentStatusDraft}
+                    onChange={(e) => setCurrentStatusDraft(e.target.value)}
+                    placeholder="Resumo breve do momento atual do caso para o cliente."
+                    className="w-full min-h-[132px] rounded-lg border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-gold/50"
+                    maxLength={2000}
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Esse texto aparece no painel do cliente somente quando estiver preenchido.
+                    </p>
+                    <button
+                      onClick={() => void handleSaveCurrentStatus()}
+                      disabled={savingCurrentStatus}
+                      className="btn-gold px-4 py-2 text-sm disabled:opacity-60"
+                    >
+                      {savingCurrentStatus ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {caseData.pendingClient > 0 && (

@@ -11,6 +11,7 @@ public record CaseRequest(
         @NotBlank @Size(max = 200) String title,
         @Size(max = 100) String caseNumber,
         @Size(max = 80) String area,
+        @Size(max = 2000) String currentStatus,
         @NotNull CaseStatus status,
         @NotNull CasePriority priority,
         UUID responsibleUserId

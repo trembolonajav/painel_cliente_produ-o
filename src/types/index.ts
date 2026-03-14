@@ -46,8 +46,10 @@ export type CasePriority = "alta" | "media" | "baixa";
 export interface CaseData {
   id: string;
   code: string;
+  caseNumber?: string;
   title: string;
   subtitle: string;
+  currentStatus?: string;
   clientId: string;
   partnerId?: string;
   partnerName?: string;

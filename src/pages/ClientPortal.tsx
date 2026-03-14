@@ -169,6 +169,7 @@ const ClientPortal = () => {
     [stages],
   );
   const pendingDocs = useMemo(() => docs.filter((doc) => doc.status === "pendente"), [docs]);
+  const currentStatus = caseData?.currentStatus?.trim() || "";
   const availableDocs = useMemo(() => docs.filter((doc) => doc.status === "disponivel"), [docs]);
   const whatsappMessage = useMemo(() => {
     return `Olá, estou entrando em contato pois tenho dúvidas sobre o meu caso ${caseData?.title ?? ""}.`;
@@ -376,6 +377,11 @@ const ClientPortal = () => {
                 <Clock className="w-3 h-3" />
                 <span>Etapa atual: <strong className="text-primary-foreground">{currentStage.title ?? statusLabel[caseData.status]}</strong></span>
               </div>
+            )}
+            {currentStatus && (
+              <p className="mt-2 text-sm leading-6 text-primary-foreground/78 whitespace-pre-wrap">
+                {currentStatus}
+              </p>
             )}
           </div>
         </div>

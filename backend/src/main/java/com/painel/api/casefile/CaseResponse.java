@@ -12,6 +12,7 @@ public record CaseResponse(
         String title,
         String caseNumber,
         String area,
+        String currentStatus,
         CaseStatus status,
         CasePriority priority,
         UUID createdBy,

@@ -72,6 +72,7 @@ type CaseResponse = {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string | null;
   status: BackendCaseStatus;
   priority: BackendCasePriority;
   createdAt: string;
@@ -167,6 +168,7 @@ type ClientPortalCaseResponse = {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string | null;
   status: BackendCaseStatus;
   priority: BackendCasePriority;
   updatedAt: string;
@@ -615,6 +617,7 @@ export async function createCaseRequest(data: {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string;
   status: CaseStatus;
   priority: CasePriority;
   responsibleUserId?: string;
@@ -628,6 +631,7 @@ export async function createCaseRequest(data: {
       title: data.title,
       caseNumber: data.caseNumber || null,
       area: data.area || null,
+      currentStatus: data.currentStatus || null,
       status: toBackendCaseStatus(data.status),
       priority: toBackendCasePriority(data.priority),
       responsibleUserId: data.responsibleUserId || null,
@@ -637,8 +641,10 @@ export async function createCaseRequest(data: {
   return {
     id: response.id,
     code: response.caseNumber || response.id.slice(0, 8).toUpperCase(),
+    caseNumber: response.caseNumber || undefined,
     title: response.title,
     subtitle: response.area || "",
+    currentStatus: response.currentStatus || undefined,
     clientId: response.clientId,
     partnerId: response.partnerId || undefined,
     partnerName: response.partnerName || undefined,
@@ -655,15 +661,16 @@ export async function createCaseRequest(data: {
 
 export async function updateCaseRequest(
   caseId: string,
-  data: {
-    clientId: string;
-    partnerId?: string;
-    title: string;
-    caseNumber?: string;
-    area?: string;
-    status: CaseStatus;
-    priority: CasePriority;
-    responsibleUserId?: string;
+    data: {
+      clientId: string;
+      partnerId?: string;
+      title: string;
+      caseNumber?: string;
+      area?: string;
+      currentStatus?: string;
+      status: CaseStatus;
+      priority: CasePriority;
+      responsibleUserId?: string;
   },
 ): Promise<CaseData> {
   const response = await apiRequest<CaseResponse>(`/cases/${caseId}`, {
@@ -675,6 +682,7 @@ export async function updateCaseRequest(
       title: data.title,
       caseNumber: data.caseNumber || null,
       area: data.area || null,
+      currentStatus: data.currentStatus || null,
       status: toBackendCaseStatus(data.status),
       priority: toBackendCasePriority(data.priority),
       responsibleUserId: data.responsibleUserId || null,
@@ -684,8 +692,10 @@ export async function updateCaseRequest(
   return {
     id: response.id,
     code: response.caseNumber || response.id.slice(0, 8).toUpperCase(),
+    caseNumber: response.caseNumber || undefined,
     title: response.title,
     subtitle: response.area || "",
+    currentStatus: response.currentStatus || undefined,
     clientId: response.clientId,
     partnerId: response.partnerId || undefined,
     partnerName: response.partnerName || undefined,
@@ -734,8 +744,10 @@ export async function getCaseDetailRequest(caseId: string): Promise<CaseDetailPa
     caseData: {
       id: caseResponse.id,
       code: caseResponse.caseNumber || caseResponse.id.slice(0, 8).toUpperCase(),
+      caseNumber: caseResponse.caseNumber || undefined,
       title: caseResponse.title,
       subtitle: caseResponse.area || "",
+      currentStatus: caseResponse.currentStatus || undefined,
       clientId: caseResponse.clientId,
       partnerId: caseResponse.partnerId || undefined,
       partnerName: caseResponse.partnerName || undefined,
@@ -1033,6 +1045,7 @@ export type ClientPortalCase = {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string;
   status: CaseStatus;
   priority: CasePriority;
   updatedAt: string;
@@ -1084,6 +1097,7 @@ export async function getClientPortalCaseRequest(sessionToken?: string): Promise
     title: response.title,
     caseNumber: response.caseNumber,
     area: response.area,
+    currentStatus: response.currentStatus || undefined,
     status: toFrontendCaseStatus(response.status),
     priority: toFrontendCasePriority(response.priority),
     updatedAt: response.updatedAt,

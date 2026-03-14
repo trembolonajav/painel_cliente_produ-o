@@ -214,6 +214,7 @@ public class CaseService {
         caseFile.setTitle(request.title().trim());
         caseFile.setCaseNumber(trimToNull(request.caseNumber()));
         caseFile.setArea(trimToNull(request.area()));
+        caseFile.setCurrentStatus(trimToNull(request.currentStatus()));
         caseFile.setStatus(request.status());
         caseFile.setPriority(request.priority());
         if (request.status() == CaseStatus.CLOSED && caseFile.getClosedAt() == null) {
@@ -233,6 +234,7 @@ public class CaseService {
                 caseFile.getTitle(),
                 caseFile.getCaseNumber(),
                 caseFile.getArea(),
+                caseFile.getCurrentStatus(),
                 caseFile.getStatus(),
                 caseFile.getPriority(),
                 caseFile.getCreatedBy().getId(),
