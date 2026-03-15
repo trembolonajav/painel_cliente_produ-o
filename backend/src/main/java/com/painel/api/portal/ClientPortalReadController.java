@@ -35,6 +35,12 @@ public class ClientPortalReadController {
         return clientPortalReadService.listVisibleUpdates(request);
     }
 
+    @GetMapping("/bootstrap")
+    @ResponseStatus(HttpStatus.OK)
+    public ClientPortalBootstrapResponse bootstrap(HttpServletRequest request) {
+        return clientPortalReadService.bootstrap(request);
+    }
+
     @GetMapping("/documents")
     @ResponseStatus(HttpStatus.OK)
     public List<DocumentResponse> documents(HttpServletRequest request) {

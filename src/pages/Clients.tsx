@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   Briefcase, Users, LogOut, Search, Plus,
@@ -7,9 +8,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { listCasesRequest, listClientsRequest, createClientRequest, updateClientRequest, deleteClientRequest } from "@/services/backend";
+import { listClientsRequest, createClientRequest, updateClientRequest, deleteClientRequest } from "@/services/backend";
+import type { PaginatedResult } from "@/services/backend";
 import { getItem } from "@/services/storage";
-import type { OfficeSettings, Client, CaseData } from "@/types";
+import type { OfficeSettings, Client } from "@/types";
 import abrLogo from "@/assets/abr-logo.png";
 import {
   AlertDialog,
@@ -31,6 +33,7 @@ type FormErrors = {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PAGE_SIZE = 10;
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
 
@@ -68,7 +71,10 @@ const formatStoredPhone = (value?: string) => {
   return undefined;
 };
 
+const buildClientsQueryKey = (search: string, page: number) => ["clients", search, page, PAGE_SIZE] as const;
+
 const Clients = () => {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user, logout, can } = useAuth();
   const office = getItem<OfficeSettings>("office_settings");
@@ -79,7 +85,9 @@ const Clients = () => {
   const [saving, setSaving] = useState(false);
   const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  const [cases, setCases] = useState<CaseData[]>([]);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalItems, setTotalItems] = useState(0);
 
   const [formName, setFormName] = useState("");
   const [formType, setFormType] = useState<Client["type"]>("Pessoa Física");
@@ -88,12 +96,38 @@ const Clients = () => {
   const [formPhone, setFormPhone] = useState("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
-  const loadData = async () => {
+  const updateClientsCache = (
+    targetPage: number,
+    updater: (current: Client[]) => Client[],
+    nextTotalItems = totalItems,
+    nextTotalPages = totalPages,
+  ) => {
+    const queryKey = buildClientsQueryKey(searchQuery, targetPage);
+    setClients((current) => updater(current));
+    queryClient.setQueryData<PaginatedResult<Client>>(queryKey, (cached) =>
+      cached
+        ? {
+            ...cached,
+            items: updater(cached.items),
+            totalItems: nextTotalItems,
+            totalPages: nextTotalPages,
+          }
+        : cached,
+    );
+    setTotalItems(nextTotalItems);
+    setTotalPages(nextTotalPages);
+  };
+
+  const loadData = async (targetPage = page, targetSearch = searchQuery) => {
     setLoading(true);
     try {
-      const [clientsData, casesData] = await Promise.all([listClientsRequest(), listCasesRequest()]);
-      setClients(clientsData);
-      setCases(casesData);
+      const clientsData = await queryClient.fetchQuery({
+        queryKey: ["clients", targetSearch, targetPage, PAGE_SIZE],
+        queryFn: () => listClientsRequest({ search: targetSearch || undefined, page: targetPage, size: PAGE_SIZE }),
+      });
+      setClients(clientsData.items);
+      setTotalPages(clientsData.totalPages);
+      setTotalItems(clientsData.totalItems);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao carregar clientes.");
     } finally {
@@ -102,16 +136,8 @@ const Clients = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const filtered = useMemo(
-    () =>
-      clients.filter((c) =>
-        !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()),
-      ),
-    [clients, searchQuery],
-  );
+    void loadData();
+  }, [page, searchQuery]);
 
   const openNewForm = () => {
     setEditingId(null);
@@ -158,31 +184,52 @@ const Clients = () => {
     setFormErrors({});
     setSaving(true);
     try {
+      const isFiltered = searchQuery.trim().length > 0;
       if (editingId) {
-        await updateClientRequest(editingId, {
+        const updatedClient = await updateClientRequest(editingId, {
           name: trimmedName,
           cpfLast3: cpfDigits,
           email: trimmedEmail || undefined,
           phone: phoneDigits || undefined,
         });
+        if (!isFiltered) {
+          updateClientsCache(page, (current) =>
+            current.map((item) => (item.id === editingId ? updatedClient : item)),
+          );
+        }
       } else {
-        await createClientRequest({
+        const createdClient = await createClientRequest({
           name: trimmedName,
           cpfLast3: cpfDigits,
           email: trimmedEmail || undefined,
           phone: phoneDigits || undefined,
         });
+        if (!isFiltered && page === 0) {
+          const nextTotalItems = totalItems + 1;
+          const nextTotalPages = Math.max(1, Math.ceil(nextTotalItems / PAGE_SIZE));
+          updateClientsCache(
+            0,
+            (current) => [createdClient, ...current].slice(0, PAGE_SIZE),
+            nextTotalItems,
+            nextTotalPages,
+          );
+        }
       }
+
+      await queryClient.invalidateQueries({ queryKey: ["clients"], refetchType: "none" });
       setShowForm(false);
-      await loadData();
+
+      if (!editingId && page !== 0) {
+        setPage(0);
+      } else if (isFiltered) {
+        await loadData(editingId ? page : 0);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao salvar cliente.");
     } finally {
       setSaving(false);
     }
   };
-
-  const getCaseCount = (clientId: string) => cases.filter((c) => c.clientId === clientId).length;
 
   const handleLogout = () => {
     logout();
@@ -192,10 +239,27 @@ const Clients = () => {
   const handleDeleteClient = async () => {
     if (!deletingClientId) return;
     try {
+      const isFiltered = searchQuery.trim().length > 0;
       const result = await deleteClientRequest(deletingClientId);
       toast.success(result.message);
+      await queryClient.invalidateQueries({ queryKey: ["clients"], refetchType: "none" });
+      const nextPage = page > 0 && clients.length === 1 ? page - 1 : page;
+      if (!isFiltered && nextPage === page) {
+        const nextTotalItems = Math.max(totalItems - 1, 0);
+        const nextTotalPages = nextTotalItems === 0 ? 0 : Math.ceil(nextTotalItems / PAGE_SIZE);
+        updateClientsCache(
+          page,
+          (current) => current.filter((item) => item.id !== deletingClientId),
+          nextTotalItems,
+          nextTotalPages,
+        );
+      }
       setDeletingClientId(null);
-      await loadData();
+      if (nextPage !== page) {
+        setPage(nextPage);
+      } else if (isFiltered) {
+        await loadData(nextPage);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao excluir cliente.");
     }
@@ -251,7 +315,10 @@ const Clients = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setPage(0);
+                setSearchQuery(e.target.value);
+              }}
               placeholder="Buscar cliente..."
               className="input-field pl-10 text-sm"
             />
@@ -291,7 +358,7 @@ const Clients = () => {
                   {formErrors.type && <p className="mt-1 text-xs text-destructive">{formErrors.type}</p>}
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">Últimos 3 dígitos CPF/CNPJ</label>
+                  <label className="text-sm font-medium text-foreground mb-1.5 block">Primeiros 3 dígitos CPF/CNPJ</label>
                   <input
                     value={formCpf}
                     onChange={(e) => {
@@ -348,7 +415,7 @@ const Clients = () => {
           {loading && <div className="text-sm text-muted-foreground">Carregando clientes...</div>}
 
           <div className="space-y-3">
-            {filtered.map((c) => (
+            {clients.map((c) => (
               <div key={c.id} className="bg-card rounded-xl border p-5 flex items-center gap-4 hover:shadow-sm transition-shadow">
                 <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground shrink-0">
                   {c.name.charAt(0)}
@@ -367,7 +434,7 @@ const Clients = () => {
                         <Phone className="w-3 h-3" /> {formatStoredPhone(c.phone)}
                       </span>
                     )}
-                    <span>{getCaseCount(c.id)} caso{getCaseCount(c.id) !== 1 ? "s" : ""}</span>
+                    <span>{c.caseCount} caso{c.caseCount !== 1 ? "s" : ""}</span>
                   </div>
                 </div>
                 {can("clients_write") && (
@@ -388,7 +455,31 @@ const Clients = () => {
             ))}
           </div>
 
-          {!loading && filtered.length === 0 && (
+          {!loading && totalPages > 1 && (
+            <div className="flex items-center justify-between gap-3 border-t pt-4">
+              <p className="text-sm text-muted-foreground">
+                Página {page + 1} de {totalPages} · {totalItems} cliente{totalItems !== 1 ? "s" : ""}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((prev) => Math.max(prev - 1, 0))}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <button
+                  onClick={() => setPage((prev) => Math.min(prev + 1, Math.max(totalPages - 1, 0)))}
+                  disabled={page + 1 >= totalPages}
+                  className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50"
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!loading && clients.length === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p>Nenhum cliente encontrado.</p>
@@ -422,4 +513,3 @@ const Clients = () => {
 };
 
 export default Clients;
-

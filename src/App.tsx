@@ -16,7 +16,16 @@ import ClientPortal from "./pages/ClientPortal";
 import NotFound from "./pages/NotFound";
 import { ReactNode } from "react";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30 * 1000,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 function ProtectedRoute({ children, requiredPermission }: { children: ReactNode; requiredPermission?: string }) {
   const { user, loading, can } = useAuth();

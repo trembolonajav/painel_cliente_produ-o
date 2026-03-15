@@ -71,9 +71,10 @@ const Dashboard = () => {
     partners,
     users,
     handleCreateCase,
+    handleRemoveCase,
     handleStartEditingCase,
     handleCreateDialogOpenChange,
-  } = useDashboardCases({ officeInitials: office?.initials, user });
+  } = useDashboardCases({ officeInitials: office?.initials, user, can });
   const [deletingCaseId, setDeletingCaseId] = useState<string | null>(null);
 
   const handleLogout = () => {
@@ -86,8 +87,8 @@ const Dashboard = () => {
     try {
       const result = await deleteCaseRequest(deletingCaseId);
       toast.success(result.message);
+      handleRemoveCase(deletingCaseId);
       setDeletingCaseId(null);
-      window.location.reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao excluir caso.");
     }

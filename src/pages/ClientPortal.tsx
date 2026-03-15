@@ -18,14 +18,8 @@ import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-d
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { usePortal } from "@/context/PortalContext";
 import {
-  getClientPortalCaseRequest,
+  getClientPortalBootstrapRequest,
   getClientPortalDocumentDownloadUrlRequest,
-  getClientPortalMeRequest,
-  getClientPortalPatrimonyOriginalDocumentDownloadRequest,
-  getClientPortalPatrimonyRequest,
-  listClientPortalDocumentsRequest,
-  listClientPortalStagesRequest,
-  listClientPortalUpdatesRequest,
   type ClientPortalCase,
   type ClientPortalDocument,
   type ClientPortalMe,
@@ -114,49 +108,21 @@ const ClientPortal = () => {
     }
 
     setLoading(true);
-    Promise.all([
-      getClientPortalMeRequest(session.sessionToken),
-      getClientPortalCaseRequest(session.sessionToken),
-      listClientPortalDocumentsRequest(session.sessionToken),
-      listClientPortalUpdatesRequest(session.sessionToken),
-      listClientPortalStagesRequest(session.sessionToken),
-      getClientPortalPatrimonyRequest(session.sessionToken),
-    ])
-      .then(([meData, caseInfo, documents, history, stageList, patrimonyData]) => {
-        setMe(meData);
-        setCaseData(caseInfo);
-        setDocs(documents);
-        setUpdates(history);
-        setStages(stageList);
-        setPatrimony(patrimonyData);
+    getClientPortalBootstrapRequest(session.sessionToken)
+      .then((bootstrap) => {
+        setMe(bootstrap.me);
+        setCaseData(bootstrap.caseData);
+        setDocs(bootstrap.documents);
+        setUpdates(bootstrap.updates);
+        setStages(bootstrap.stages);
+        setPatrimony(bootstrap.patrimony);
+        setPatrimonyOriginalDoc(bootstrap.patrimonyOriginalDocument);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Falha ao carregar o portal.");
       })
       .finally(() => setLoading(false));
   }, [session?.sessionToken]);
-
-  useEffect(() => {
-    if (!session?.sessionToken || !patrimony?.structureId) {
-      setPatrimonyOriginalDoc(null);
-      return;
-    }
-
-    let cancelled = false;
-    getClientPortalPatrimonyOriginalDocumentDownloadRequest(session.sessionToken)
-      .then((doc) => {
-        if (cancelled) return;
-        setPatrimonyOriginalDoc(doc);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setPatrimonyOriginalDoc(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.sessionToken, patrimony?.structureId]);
 
   const progress = useMemo(() => {
     const byStages = progressFromStages(stages);

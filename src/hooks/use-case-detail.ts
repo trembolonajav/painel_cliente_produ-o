@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { CaseDocument, CaseStage, CaseStageSubstep, CaseTask, CaseUpdate, CaseWithComputed, User } from "@/types";
 import {
@@ -14,6 +15,7 @@ import {
   deleteCaseTaskRequest,
   deleteCaseUpdateRequest,
   getCaseDetailRequest,
+  getCaseSummaryRequest,
   getCaseDocumentDownloadUrlRequest,
   getCasePortalLinkStatusRequest,
   listStageSubstepsRequest,
@@ -27,6 +29,7 @@ import {
   updateCaseStageRequest,
   updateCaseTaskRequest,
   type CaseMemberResponse,
+  type CaseSummaryPayload,
   type PortalLinkState,
   type StageDto,
   type StageSubstepDto,
@@ -53,6 +56,8 @@ type UiPortalLink = {
   url?: string;
   createdAt: string;
 };
+
+const CASE_DETAIL_QUERY_STALE_TIME = 30 * 1000;
 
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
@@ -180,10 +185,54 @@ function mapPortal(state: PortalLinkState | null): UiPortalLink[] {
   ];
 }
 
+function buildComputedCase(
+  summary: CaseSummaryPayload,
+  previous: CaseWithComputed | null,
+  overrides: {
+    stages?: CaseStage[];
+    documents?: CaseDocument[];
+    updates?: CaseUpdate[];
+    checklist?: CaseTask[];
+    portalState?: PortalLinkState | null;
+  } = {},
+): CaseWithComputed {
+  const stages = overrides.stages ?? previous?.stages ?? [];
+  const documents = overrides.documents ?? previous?.documents ?? [];
+  const updates = overrides.updates ?? previous?.updates ?? [];
+  const checklist = overrides.checklist ?? previous?.checklist ?? [];
+  const computedProgress = progressFromStages(stages);
+  const pendingClient = documents.filter((item) => item.visibility === "cliente" && item.status === "pendente").length;
+  const currentStage = Math.max(
+    stages.findIndex((stage) => stage.status === "em_andamento"),
+    0,
+  );
+  const portalState = overrides.portalState;
+
+  return {
+    ...summary.caseData,
+    clientName: summary.clientName,
+    clientType: previous?.clientType ?? "Pessoa Física",
+    responsible: previous?.responsible ?? summary.caseData.responsible,
+    team: previous?.team ?? summary.caseData.team,
+    progress: computedProgress ?? progressFromStatus(summary.caseData.status),
+    pendingClient,
+    portalActive: portalState ? portalState.status === "ACTIVE" : (previous?.portalActive ?? false),
+    portalExpiry: portalState?.expiresAt
+      ? formatDate(portalState.expiresAt)
+      : (portalState ? undefined : previous?.portalExpiry),
+    lastUpdate: updates[0]?.date ?? formatDate(summary.caseData.updatedAt),
+    currentStage,
+    stages,
+    documents,
+    updates,
+    checklist,
+  };
+}
+
 export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("andamento");
   const [loading, setLoading] = useState(true);
-  const [tick, setTick] = useState(0);
   const [newStageName, setNewStageName] = useState("");
   const [newStageDescription, setNewStageDescription] = useState("");
   const [newSubstepTitles, setNewSubstepTitles] = useState<Record<string, string>>({});
@@ -202,73 +251,188 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
   const [generatedPortalUrl, setGeneratedPortalUrl] = useState<string | null>(null);
   const [isReordering, setIsReordering] = useState(false);
 
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const loadCaseSummary = useCallback(async () => {
+    if (!caseId) return null;
+
+    return queryClient.fetchQuery({
+      queryKey: ["case-summary", caseId],
+      queryFn: () => getCaseSummaryRequest(caseId),
+      staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+    });
+  }, [caseId, queryClient]);
+
+  const loadStagesBlock = useCallback(async () => {
+    if (!caseId) return { stagesWithSubsteps: [] as CaseStage[], substepsByStage: {} as Record<string, CaseStageSubstep[]> };
+
+    const stages = await queryClient.fetchQuery({
+      queryKey: ["case-stages", caseId],
+      queryFn: () => listCaseStagesRequest(caseId),
+      staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+    });
+    const mappedStages = mapStages(stages);
+    const substepsByStageEntries = await Promise.all(
+      mappedStages.map(async (stage) => {
+        try {
+          const substeps = await queryClient.fetchQuery({
+            queryKey: ["stage-substeps", stage.id],
+            queryFn: () => listStageSubstepsRequest(stage.id),
+            staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+          });
+          return [stage.id, mapSubsteps(substeps)] as const;
+        } catch {
+          return [stage.id, []] as const;
+        }
+      }),
+    );
+    const substepsByStage = Object.fromEntries(substepsByStageEntries);
+
+    return {
+      stagesWithSubsteps: mappedStages.map((stage) => ({
+        ...stage,
+        substeps: substepsByStage[stage.id] ?? [],
+      })),
+      substepsByStage,
+    };
+  }, [caseId, queryClient]);
+
+  const loadTasksBlock = useCallback(async () => {
+    if (!caseId) return [] as CaseTask[];
+
+    const tasks = await queryClient.fetchQuery({
+      queryKey: ["case-tasks", caseId],
+      queryFn: () => listCaseTasksRequest(caseId),
+      staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+    });
+
+    return mapTasks(tasks);
+  }, [caseId, queryClient]);
+
+  const loadUpdatesBlock = useCallback(async (resolvedCaseId?: string) => {
+    if (!caseId) return [] as CaseUpdate[];
+
+    const updates = await queryClient.fetchQuery({
+      queryKey: ["case-updates", caseId],
+      queryFn: () => listCaseUpdatesRequest(caseId),
+      staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+    });
+
+    return mapUpdates(updates).map((item) => ({ ...item, caseId: resolvedCaseId ?? caseId }));
+  }, [caseId, queryClient]);
+
+  const loadDocumentsBlock = useCallback(async (resolvedCaseId?: string) => {
+    if (!caseId) return [] as CaseDocument[];
+
+    const documents = await queryClient.fetchQuery({
+      queryKey: ["case-documents", caseId],
+      queryFn: () => listCaseDocumentsRequest(caseId),
+      staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+    });
+
+    return mapDocuments(documents, resolvedCaseId ?? caseId);
+  }, [caseId, queryClient]);
+
+  const refreshStagesBlock = useCallback(async () => {
+    if (!caseId) return;
+
+    const previousStageIds = caseData?.stages.map((stage) => stage.id) ?? [];
+    await queryClient.invalidateQueries({ queryKey: ["case-summary", caseId] });
+    await queryClient.invalidateQueries({ queryKey: ["case-detail", caseId] });
+    await queryClient.invalidateQueries({ queryKey: ["case-stages", caseId] });
+    await Promise.all(
+      previousStageIds.map((stageId) => queryClient.invalidateQueries({ queryKey: ["stage-substeps", stageId] })),
+    );
+
+    const [summary, { stagesWithSubsteps, substepsByStage }] = await Promise.all([
+      loadCaseSummary(),
+      loadStagesBlock(),
+    ]);
+    if (!summary) return;
+
+    setStageSubsteps(substepsByStage);
+    setCaseData((prev) => buildComputedCase(summary, prev, { stages: stagesWithSubsteps }));
+  }, [caseData?.stages, caseId, loadCaseSummary, loadStagesBlock, queryClient]);
+
+  const refreshTasksBlock = useCallback(async () => {
+    if (!caseId) return;
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["case-summary", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["case-detail", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["case-tasks", caseId] }),
+    ]);
+
+    const [summary, checklist] = await Promise.all([loadCaseSummary(), loadTasksBlock()]);
+    if (!summary) return;
+
+    setCaseData((prev) => buildComputedCase(summary, prev, { checklist }));
+  }, [caseId, loadCaseSummary, loadTasksBlock, queryClient]);
+
+  const refreshUpdatesBlock = useCallback(async () => {
+    if (!caseId) return;
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["case-summary", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["case-detail", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["case-updates", caseId] }),
+    ]);
+
+    const summary = await loadCaseSummary();
+    if (!summary) return;
+    const updates = await loadUpdatesBlock(summary.caseData.id);
+
+    setCaseData((prev) => buildComputedCase(summary, prev, { updates }));
+  }, [caseId, loadCaseSummary, loadUpdatesBlock, queryClient]);
+
+  const refreshDocumentsBlock = useCallback(async () => {
+    if (!caseId) return;
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["case-summary", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["case-detail", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] }),
+    ]);
+
+    const summary = await loadCaseSummary();
+    if (!summary) return;
+    const documents = await loadDocumentsBlock(summary.caseData.id);
+
+    setCaseData((prev) => buildComputedCase(summary, prev, { documents }));
+  }, [caseId, loadCaseSummary, loadDocumentsBlock, queryClient]);
 
   useEffect(() => {
     if (!caseId || !user) {
       setCaseData(null);
       setCaseMembers([]);
+      setPortalState(null);
       setLoading(false);
       return;
     }
 
+    setPortalState(null);
     setLoading(true);
     Promise.all([
-      getCaseDetailRequest(caseId),
-      listCaseStagesRequest(caseId),
-      listCaseTasksRequest(caseId),
-      listCaseUpdatesRequest(caseId),
-      listCaseDocumentsRequest(caseId),
-      getCasePortalLinkStatusRequest(caseId),
+      queryClient.fetchQuery({
+        queryKey: ["case-detail", caseId],
+        queryFn: () => getCaseDetailRequest(caseId),
+        staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+      }),
+      loadStagesBlock(),
+      loadTasksBlock(),
     ])
-      .then(async ([detail, stages, tasks, updates, documents, portal]) => {
-        const mappedUpdates = mapUpdates(updates).map((item) => ({ ...item, caseId: detail.caseData.id }));
-        const mappedDocuments = mapDocuments(documents, detail.caseData.id);
-        const mappedStages = mapStages(stages);
-        const substepsByStageEntries = await Promise.all(
-          mappedStages.map(async (stage) => {
-            try {
-              const substeps = await listStageSubstepsRequest(stage.id);
-              return [stage.id, mapSubsteps(substeps)] as const;
-            } catch {
-              return [stage.id, []] as const;
-            }
-          }),
-        );
-        const substepsByStage = Object.fromEntries(substepsByStageEntries);
-        const stagesWithSubsteps = mappedStages.map((stage) => ({
-          ...stage,
-          substeps: substepsByStage[stage.id] ?? [],
-        }));
-        const mappedTasks = mapTasks(tasks);
-        const computedProgress = progressFromStages(stagesWithSubsteps);
-        const pendingClient = mappedDocuments.filter((item) => item.visibility === "cliente" && item.status === "pendente").length;
-        const currentStage = Math.max(
-          stagesWithSubsteps.findIndex((stage) => stage.status === "em_andamento"),
-          0,
-        );
+      .then(async ([detail, { stagesWithSubsteps, substepsByStage }, mappedTasks]) => {
+        const [mappedUpdates, mappedDocuments] = await Promise.all([
+          loadUpdatesBlock(detail.caseData.id),
+          loadDocumentsBlock(detail.caseData.id),
+        ]);
 
-        const status = detail.caseData.status;
-        const computed: CaseWithComputed = {
-          ...detail.caseData,
-          clientName: detail.clientName,
-          clientType: "Pessoa Física",
-          progress: computedProgress ?? progressFromStatus(status),
-          pendingClient,
-          portalActive: portal.status === "ACTIVE",
-          portalExpiry: portal.expiresAt ? formatDate(portal.expiresAt) : undefined,
-          lastUpdate: mappedUpdates[0]?.date ?? formatDate(detail.caseData.updatedAt),
-          currentStage,
+        setCaseData(buildComputedCase(detail, null, {
           stages: stagesWithSubsteps,
-          documents: mappedDocuments,
           updates: mappedUpdates,
+          documents: mappedDocuments,
           checklist: mappedTasks,
-        };
-
-        setCaseData(computed);
+        }));
         setCaseMembers(detail.members);
         setStageSubsteps(substepsByStage);
-        setPortalState(portal);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "Falha ao carregar detalhes do caso.");
@@ -276,7 +440,34 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
         setCaseMembers([]);
       })
       .finally(() => setLoading(false));
-  }, [caseId, tick, user]);
+  }, [caseId, loadDocumentsBlock, loadStagesBlock, loadTasksBlock, loadUpdatesBlock, queryClient, user]);
+
+  useEffect(() => {
+    if (!caseId || !user || activeTab !== "portal") return;
+
+    queryClient.fetchQuery({
+      queryKey: ["case-portal-link", caseId],
+      queryFn: () => getCasePortalLinkStatusRequest(caseId),
+      staleTime: CASE_DETAIL_QUERY_STALE_TIME,
+    })
+      .then((portal) => {
+        setPortalState(portal);
+      })
+      .catch(() => {
+        setPortalState(null);
+      });
+  }, [activeTab, caseId, queryClient, user]);
+
+  useEffect(() => {
+    setCaseData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        portalActive: portalState?.status === "ACTIVE",
+        portalExpiry: portalState?.expiresAt ? formatDate(portalState.expiresAt) : undefined,
+      };
+    });
+  }, [portalState]);
 
   const portalLinks = useMemo(() => mapPortal(portalState), [portalState]);
   const activeLink = useMemo(() => portalLinks.find((l) => l.active), [portalLinks]);
@@ -299,12 +490,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           status: nextStatus,
         });
         toast.success("Etapa atualizada");
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao atualizar etapa.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleAddStage = useCallback(async () => {
@@ -319,11 +510,11 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       setNewStageName("");
       setNewStageDescription("");
       toast.success("Etapa adicionada");
-      refresh();
+      await refreshStagesBlock();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar etapa.");
     }
-  }, [can, caseData?.stages.length, caseId, newStageDescription, newStageName, refresh]);
+  }, [can, caseData?.stages.length, caseId, newStageDescription, newStageName, refreshStagesBlock]);
 
   const setNewSubstepTitle = useCallback((stageId: string, value: string) => {
     setNewSubstepTitles((prev) => ({ ...prev, [stageId]: value }));
@@ -356,12 +547,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
         setNewSubstepDescriptions((prev) => ({ ...prev, [stageId]: "" }));
         setNewSubstepVisibleToClient((prev) => ({ ...prev, [stageId]: false }));
         toast.success("Subprocesso adicionado");
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao criar subprocesso.");
       }
     },
-    [can, newSubstepDescriptions, newSubstepTitles, newSubstepVisibleToClient, refresh, stageSubsteps],
+    [can, newSubstepDescriptions, newSubstepTitles, newSubstepVisibleToClient, refreshStagesBlock, stageSubsteps],
   );
 
   const handleSubstepStatusChange = useCallback(
@@ -375,12 +566,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           status: toBackendSubstepStatus(status),
           visibleToClient: substep.visibleToClient,
         });
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao atualizar subprocesso.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleStageReorder = useCallback(
@@ -409,14 +600,14 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           position: swapStage.order,
           status: stage.status === "concluido" ? "DONE" : stage.status === "em_andamento" ? "ACTIVE" : "PENDING",
         });
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao reordenar etapa.");
       } finally {
         setIsReordering(false);
       }
     },
-    [canReorderStages, caseData, isReordering, refresh],
+    [canReorderStages, caseData, isReordering, refreshStagesBlock],
   );
 
   const handleStageUpdate = useCallback(
@@ -428,9 +619,9 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
         position: stage.order,
         status: stage.status === "concluido" ? "DONE" : stage.status === "em_andamento" ? "ACTIVE" : "PENDING",
       });
-      refresh();
+      await refreshStagesBlock();
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleSubstepOrderChange = useCallback(
@@ -445,12 +636,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           status: toBackendSubstepStatus(substep.status),
           visibleToClient: substep.visibleToClient,
         });
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao reordenar subprocesso.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleSubstepReorder = useCallback(
@@ -477,14 +668,14 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           status: toBackendSubstepStatus(substep.status),
           visibleToClient: substep.visibleToClient,
         });
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao reordenar subprocesso.");
       } finally {
         setIsReordering(false);
       }
     },
-    [canReorderStages, caseData, isReordering, refresh],
+    [canReorderStages, caseData, isReordering, refreshStagesBlock],
   );
 
   const handleSubstepVisibilityChange = useCallback(
@@ -499,12 +690,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           visibleToClient,
         });
         toast.success("Visibilidade do subprocesso atualizada");
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao atualizar visibilidade do subprocesso.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleSubstepDescriptionChange = useCallback(
@@ -519,12 +710,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           visibleToClient: substep.visibleToClient,
         });
         toast.success("Descrição da subetapa atualizada");
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao atualizar descrição da subetapa.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleSubstepUpdate = useCallback(
@@ -537,9 +728,9 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
         status: toBackendSubstepStatus(substep.status),
         visibleToClient: payload.visibleToClient,
       });
-      refresh();
+      await refreshStagesBlock();
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleDeleteSubstep = useCallback(
@@ -548,12 +739,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await deleteStageSubstepRequest(substepId);
         toast.success("Subprocesso excluido");
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao excluir subprocesso.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleToggleTask = useCallback(
@@ -570,12 +761,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
           stageId: undefined,
           assignedTo: undefined,
         });
-        refresh();
+        await refreshTasksBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao atualizar tarefa.");
       }
     },
-    [can, caseData, refresh],
+    [can, caseData, refreshTasksBlock],
   );
 
   const handleAddTask = useCallback(async () => {
@@ -587,11 +778,11 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       });
       setNewTaskLabel("");
       toast.success("Tarefa adicionada");
-      refresh();
+      await refreshTasksBlock();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar tarefa.");
     }
-  }, [can, caseId, newTaskLabel, refresh]);
+  }, [can, caseId, newTaskLabel, refreshTasksBlock]);
 
   const handleAddUpdate = useCallback(async () => {
     if (!caseId || !user || !can("cases_write") || !newUpdateText.trim()) return;
@@ -599,11 +790,11 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       await createCaseUpdateRequest(caseId, newUpdateText.trim(), false);
       setNewUpdateText("");
       toast.success("Atividade registrada");
-      refresh();
+      await refreshUpdatesBlock();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao registrar atividade.");
     }
-  }, [can, caseId, newUpdateText, refresh, user]);
+  }, [can, caseId, newUpdateText, refreshUpdatesBlock, user]);
 
   const handleSetNewDocFile = useCallback(
     (file: File | null) => {
@@ -638,11 +829,11 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       setNewDocStatus("disponivel");
       setNewDocFile(null);
       toast.success("Documento enviado");
-      refresh();
+      await refreshDocumentsBlock();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao enviar documento.");
     }
-  }, [can, caseId, newDocFile, newDocStatus, newDocVisibility, refresh, user]);
+  }, [can, caseId, newDocFile, newDocStatus, newDocVisibility, refreshDocumentsBlock, user]);
 
   const handleResolvePendingDocument = useCallback(
     async (docId: string) => {
@@ -650,12 +841,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await markCaseDocumentReceivedRequest(caseId, docId);
         toast.success("Documento marcado como recebido.");
-        refresh();
+        await refreshDocumentsBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao marcar documento como recebido.");
       }
     },
-    [can, caseId, refresh],
+    [can, caseId, refreshDocumentsBlock],
   );
 
   const handleDeleteStage = useCallback(
@@ -664,12 +855,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await deleteCaseStageRequest(stageId);
         toast.success("Etapa excluida");
-        refresh();
+        await refreshStagesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao excluir etapa.");
       }
     },
-    [can, refresh],
+    [can, refreshStagesBlock],
   );
 
   const handleDeleteTask = useCallback(
@@ -678,12 +869,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await deleteCaseTaskRequest(taskId);
         toast.success("Tarefa excluida");
-        refresh();
+        await refreshTasksBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao excluir tarefa.");
       }
     },
-    [can, refresh],
+    [can, refreshTasksBlock],
   );
 
   const handleDeleteUpdate = useCallback(
@@ -692,12 +883,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         await deleteCaseUpdateRequest(caseId, updateId);
         toast.success("Atualização excluída");
-        refresh();
+        await refreshUpdatesBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao excluir atualização.");
       }
     },
-    [can, caseId, refresh],
+    [can, caseId, refreshUpdatesBlock],
   );
 
   const handleDeleteDocument = useCallback(
@@ -706,12 +897,12 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       try {
         const result = await deleteCaseDocumentRequest(caseId, documentId);
         toast.success(result.message);
-        refresh();
+        await refreshDocumentsBlock();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Falha ao excluir documento.");
       }
     },
-    [can, caseId, refresh],
+    [can, caseId, refreshDocumentsBlock],
   );
 
   const handleDownloadDocument = useCallback(
@@ -743,6 +934,7 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
     if (!caseId || !user || !can("portal_manage")) return;
     try {
       const link = await activateCasePortalLinkRequest(caseId, 10080);
+      queryClient.setQueryData(["case-portal-link", caseId], link);
       setPortalState(link);
       const url = link.url || generatedPortalUrl;
       if (url) {
@@ -757,23 +949,22 @@ export function useCaseDetail({ caseId, user, can }: UseCaseDetailParams) {
       } else {
         toast.success("Link gerado.");
       }
-      refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao gerar link.");
     }
-  }, [can, caseId, generatedPortalUrl, refresh, user]);
+  }, [can, caseId, generatedPortalUrl, queryClient, user]);
 
   const handleRevokeLink = useCallback(async () => {
     if (!caseId || !user || !can("portal_manage")) return;
     try {
       const link = await revokeCasePortalLinkRequest(caseId);
+      queryClient.setQueryData(["case-portal-link", caseId], link);
       setPortalState(link);
       toast.success("Link revogado");
-      refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao revogar link.");
     }
-  }, [can, caseId, refresh, user]);
+  }, [can, caseId, queryClient, user]);
 
   const handleCopyLink = useCallback(async () => {
     const url = activeLink?.url || generatedPortalUrl;

@@ -76,7 +76,7 @@ const ClientVerify = () => {
           <form onSubmit={handleVerify} className="bg-card rounded-xl border p-6 space-y-5">
             <div>
               <label htmlFor="cpf" className="text-sm font-medium text-foreground mb-1.5 block">
-                Últimos 3 dígitos do seu CPF
+                Primeiros 3 dígitos do seu CPF
               </label>
               <input
                 id="cpf"

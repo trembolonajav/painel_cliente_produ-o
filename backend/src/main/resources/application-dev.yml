@@ -5,6 +5,12 @@ spring:
     password: ${DATABASE_PASSWORD:607733%}
   jpa:
     show-sql: true
+    properties:
+      hibernate:
+        session:
+          events:
+            log:
+              LOG_QUERIES_SLOWER_THAN_MS: ${APP_OBSERVABILITY_SLOW_QUERY_MS:150}
 
 app:
   cors:
@@ -33,3 +39,14 @@ app:
     admin-email: admin@painel.local
     admin-password: Admin@123
     admin-name: Administrador
+  observability:
+    requests:
+      enabled: ${APP_OBSERVABILITY_REQUESTS_ENABLED:true}
+      warn-threshold-ms: ${APP_OBSERVABILITY_REQUEST_WARN_THRESHOLD_MS:300}
+      include-health: ${APP_OBSERVABILITY_INCLUDE_HEALTH:true}
+    database:
+      slow-query-threshold-ms: ${APP_OBSERVABILITY_SLOW_QUERY_MS:150}
+
+logging:
+  level:
+    org.hibernate.SQL_SLOW: WARN

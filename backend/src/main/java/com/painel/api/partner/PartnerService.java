@@ -4,12 +4,14 @@ import com.painel.api.auth.AuthorizationService;
 import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
 import com.painel.api.common.NotFoundException;
+import com.painel.api.common.PagedResponse;
 import com.painel.api.user.OfficeRole;
 import com.painel.api.user.OfficeUser;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,11 +33,17 @@ public class PartnerService {
     }
 
     @Transactional(readOnly = true)
-    public List<PartnerResponse> list(OfficeUser actor) {
+    public PagedResponse<PartnerListItemResponse> list(int page, int size, OfficeUser actor) {
         authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR, OfficeRole.ESTAGIARIO);
-        return partnerRepository.findAllByOrderByUpdatedAtDesc().stream()
-                .map(this::toResponse)
-                .toList();
+        int normalizedPage = Math.max(page, 0);
+        int normalizedSize = Math.max(1, Math.min(size, 100));
+        Page<Partner> partners = partnerRepository.findAllByOrderByNameAsc(PageRequest.of(normalizedPage, normalizedSize));
+        return new PagedResponse<>(
+                partners.getContent().stream().map(this::toListItemResponse).toList(),
+                partners.getNumber(),
+                partners.getSize(),
+                partners.getTotalElements(),
+                partners.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -107,6 +115,14 @@ public class PartnerService {
                 partner.getPhone(),
                 partner.getCreatedAt(),
                 partner.getUpdatedAt());
+    }
+
+    private PartnerListItemResponse toListItemResponse(Partner partner) {
+        return new PartnerListItemResponse(
+                partner.getId(),
+                partner.getName(),
+                partner.getEmail(),
+                partner.getPhone());
     }
 
     private String normalizeEmail(String value) {

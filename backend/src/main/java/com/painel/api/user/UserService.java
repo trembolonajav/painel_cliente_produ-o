@@ -5,13 +5,15 @@ import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
 import com.painel.api.casefile.CaseFileRepository;
 import com.painel.api.document.DocumentRepository;
+import com.painel.api.common.PagedResponse;
 import com.painel.api.common.NotFoundException;
 import com.painel.api.portal.CasePortalLinkRepository;
 import com.painel.api.updates.CaseUpdateRepository;
 import com.painel.api.workflow.CaseTaskRepository;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,12 +53,20 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public List<UserResponse> list(OfficeUser actor) {
+    public PagedResponse<UserListItemResponse> list(String search, int page, int size, OfficeUser actor) {
         authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR);
-        return officeUserRepository.findAll().stream()
-                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
-                .map(this::toResponse)
-                .toList();
+        int normalizedPage = Math.max(page, 0);
+        int normalizedSize = Math.max(1, Math.min(size, 100));
+        String normalizedSearch = trimToNull(search);
+        Page<OfficeUser> users = normalizedSearch == null
+                ? officeUserRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(normalizedPage, normalizedSize))
+                : officeUserRepository.search(normalizedSearch, onlyDigits(normalizedSearch), PageRequest.of(normalizedPage, normalizedSize));
+        return new PagedResponse<>(
+                users.getContent().stream().map(this::toListItemResponse).toList(),
+                users.getNumber(),
+                users.getSize(),
+                users.getTotalElements(),
+                users.getTotalPages());
     }
 
     @Transactional
@@ -219,6 +229,28 @@ public class UserService {
                 user.getCreatedAt(),
                 user.getUpdatedAt(),
                 user.getLastLoginAt());
+    }
+
+    private UserListItemResponse toListItemResponse(OfficeUser user) {
+        return new UserListItemResponse(
+                user.getId(),
+                user.getName(),
+                user.getEmail(),
+                user.getPhone(),
+                user.getRole(),
+                user.isActive());
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String onlyDigits(String value) {
+        return value.replaceAll("\\D", "");
     }
 
     private String normalizePhone(String value) {

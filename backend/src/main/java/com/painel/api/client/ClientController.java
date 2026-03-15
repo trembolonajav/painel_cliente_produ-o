@@ -1,8 +1,8 @@
 package com.painel.api.client;
 
+import com.painel.api.common.PagedResponse;
 import com.painel.api.user.OfficeUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,10 +29,12 @@ public class ClientController {
 
     @GetMapping
     @ResponseStatus(HttpStatus.OK)
-    public List<ClientResponse> list(
+    public PagedResponse<ClientListItemResponse> list(
             @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal OfficeUser actor) {
-        return clientService.list(search, actor);
+        return clientService.list(search, page, size, actor);
     }
 
     @GetMapping("/{id}")

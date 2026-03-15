@@ -9,6 +9,7 @@ public record ClientResponse(
         String cpfLast3,
         String email,
         String phone,
+        long caseCount,
         String notes,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt

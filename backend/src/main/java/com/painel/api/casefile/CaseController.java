@@ -1,5 +1,6 @@
 package com.painel.api.casefile;
 
+import com.painel.api.common.PagedResponse;
 import com.painel.api.user.OfficeUser;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -29,12 +30,24 @@ public class CaseController {
 
     @GetMapping
     @ResponseStatus(HttpStatus.OK)
-    public List<CaseResponse> list(
+    public PagedResponse<CaseResponse> list(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) CaseStatus status,
+            @RequestParam(required = false) UUID clientId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return caseService.list(search, status, clientId, page, size, actor);
+    }
+
+    @GetMapping("/dashboard")
+    @ResponseStatus(HttpStatus.OK)
+    public List<DashboardCaseResponse> listDashboard(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) CaseStatus status,
             @RequestParam(required = false) UUID clientId,
             @AuthenticationPrincipal OfficeUser actor) {
-        return caseService.list(search, status, clientId, actor);
+        return caseService.listDashboard(search, status, clientId, actor);
     }
 
     @GetMapping("/{id}")
