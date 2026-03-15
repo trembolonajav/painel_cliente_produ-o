@@ -3,14 +3,18 @@ package com.painel.api.client;
 import com.painel.api.auth.AuthorizationService;
 import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
+import com.painel.api.casefile.ClientCaseCountView;
 import com.painel.api.casefile.CaseFileRepository;
 import com.painel.api.common.NotFoundException;
+import com.painel.api.common.PagedResponse;
 import com.painel.api.user.OfficeRole;
 import com.painel.api.user.OfficeUser;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,13 +39,26 @@ public class ClientService {
     }
 
     @Transactional(readOnly = true)
-    public List<ClientResponse> list(String search, OfficeUser actor) {
+    public PagedResponse<ClientListItemResponse> list(String search, int page, int size, OfficeUser actor) {
         authorizationService.requireAnyRole(actor, OfficeRole.ADMINISTRADOR, OfficeRole.GESTOR, OfficeRole.ESTAGIARIO);
         String normalizedSearch = normalizeFilter(search);
-        List<Client> clients = normalizedSearch == null
-                ? clientRepository.findAllByOrderByUpdatedAtDesc()
-                : clientRepository.search(normalizedSearch);
-        return clients.stream().map(this::toResponse).toList();
+        String searchPrefix = normalizedSearch != null ? normalizedSearch.toLowerCase() + "%" : null;
+        String phonePrefix = normalizedSearch != null ? digitsPrefix(normalizedSearch) : null;
+        int normalizedPage = Math.max(page, 0);
+        int normalizedSize = Math.max(1, Math.min(size, 100));
+        PageRequest pageRequest = PageRequest.of(normalizedPage, normalizedSize);
+        Page<Client> clients = normalizedSearch == null
+                ? clientRepository.findAllByOrderByUpdatedAtDesc(pageRequest)
+                : clientRepository.search(searchPrefix, phonePrefix, pageRequest);
+        Map<UUID, Long> caseCountsByClientId = loadCaseCounts(clients.getContent());
+        return new PagedResponse<>(
+                clients.getContent().stream()
+                        .map(client -> toListItemResponse(client, caseCountsByClientId.getOrDefault(client.getId(), 0L)))
+                        .toList(),
+                clients.getNumber(),
+                clients.getSize(),
+                clients.getTotalElements(),
+                clients.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -117,25 +134,56 @@ public class ClientService {
     }
 
     private ClientResponse toResponse(Client client) {
+        return toResponse(client, caseFileRepository.countByClient_Id(client.getId()));
+    }
+
+    private ClientResponse toResponse(Client client, long caseCount) {
         return new ClientResponse(
                 client.getId(),
                 client.getName(),
                 client.getCpfLast3(),
                 client.getEmail(),
                 client.getPhone(),
+                caseCount,
                 client.getNotes(),
                 client.getCreatedAt(),
                 client.getUpdatedAt());
+    }
+
+    private ClientListItemResponse toListItemResponse(Client client, long caseCount) {
+        return new ClientListItemResponse(
+                client.getId(),
+                client.getName(),
+                client.getCpfLast3(),
+                client.getEmail(),
+                client.getPhone(),
+                caseCount);
+    }
+
+    private Map<UUID, Long> loadCaseCounts(List<Client> clients) {
+        if (clients.isEmpty()) {
+            return Map.of();
+        }
+        return caseFileRepository.countByClientIds(clients.stream().map(Client::getId).toList()).stream()
+                .collect(java.util.stream.Collectors.toMap(ClientCaseCountView::getClientId, ClientCaseCountView::getCaseCount));
     }
 
     private String normalizeFilter(String value) {
         return trimToNull(value);
     }
 
+    private String digitsPrefix(String value) {
+        String digits = value.replaceAll("\\D", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        return digits + "%";
+    }
+
     private String normalizeCpfLast3(String value) {
         String normalized = trimToNull(value);
         if (normalized == null || !normalized.matches("^\\d{3}$")) {
-            throw new IllegalArgumentException("Ultimos 3 digitos do CPF/CNPJ devem ter exatamente 3 numeros.");
+            throw new IllegalArgumentException("Primeiros 3 digitos do CPF/CNPJ devem ter exatamente 3 numeros.");
         }
         return normalized;
     }

@@ -1,4 +1,4 @@
-import type { CaseData, CasePriority, CaseStatus, Client, Partner, User, UserRole } from "@/types";
+import type { CaseData, CasePriority, CaseStatus, CaseWithComputed, Client, Partner, User, UserRole } from "@/types";
 import { apiRequest, getApiBaseUrl } from "./apiClient";
 
 type BackendRole = "ADMINISTRADOR" | "GESTOR" | "ESTAGIARIO";
@@ -29,6 +29,16 @@ type UserResponse = {
   active: boolean;
 };
 
+type UserListItemResponse = UserResponse;
+
+type PagedResponse<T> = {
+  items: T[];
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+};
+
 type UserDeleteResponse = {
   deleted: boolean;
   message: string;
@@ -40,7 +50,17 @@ type ClientResponse = {
   cpfLast3?: string;
   email?: string;
   phone?: string;
+  caseCount: number;
   createdAt: string;
+};
+
+type ClientListItemResponse = {
+  id: string;
+  name: string;
+  cpfLast3?: string;
+  email?: string;
+  phone?: string;
+  caseCount: number;
 };
 
 type ClientDeleteResponse = {
@@ -72,10 +92,41 @@ type CaseResponse = {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string | null;
   status: BackendCaseStatus;
   priority: BackendCasePriority;
   createdAt: string;
   updatedAt: string;
+};
+
+type PartnerListItemResponse = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+};
+
+type DashboardCaseResponse = {
+  id: string;
+  clientId: string;
+  clientName: string;
+  partnerId?: string | null;
+  partnerName?: string | null;
+  title: string;
+  caseNumber?: string;
+  area?: string;
+  currentStatus?: string | null;
+  status: BackendCaseStatus;
+  priority: BackendCasePriority;
+  responsibleName: string;
+  teamNames: string[];
+  progress: number;
+  pendingClient: number;
+  portalActive: boolean;
+  portalExpiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
 };
 
 type CaseDeleteResponse = {
@@ -167,6 +218,7 @@ type ClientPortalCaseResponse = {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string | null;
   status: BackendCaseStatus;
   priority: BackendCasePriority;
   updatedAt: string;
@@ -301,9 +353,26 @@ const toBackendVisibility = (visibility: "interno" | "cliente"): DocumentVisibil
   return visibility === "cliente" ? "CLIENT_VISIBLE" : "INTERNAL_ONLY";
 };
 
+const formatCaseListDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+
 export type LoginResult = {
   token: string;
   user: User;
+};
+
+export type PaginatedResult<T> = {
+  items: T[];
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+};
+
+type PaginationParams = {
+  page?: number;
+  size?: number;
+  search?: string;
 };
 
 export async function loginRequest(email: string, password: string): Promise<LoginResult> {
@@ -335,16 +404,28 @@ export async function meRequest(): Promise<User> {
   };
 }
 
-export async function listUsersRequest(): Promise<User[]> {
-  const response = await apiRequest<UserResponse[]>("/users", { auth: true });
-  return response.map((item) => ({
-    id: item.id,
-    name: item.name,
-    email: item.email,
-    phone: item.phone,
-    role: toFrontendRole(item.role),
-    active: item.active,
-  }));
+export async function listUsersRequest(params: PaginationParams = {}): Promise<PaginatedResult<User>> {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 0));
+  query.set("size", String(params.size ?? 20));
+  if (params.search?.trim()) {
+    query.set("search", params.search.trim());
+  }
+  const response = await apiRequest<PagedResponse<UserListItemResponse>>(`/users?${query.toString()}`, { auth: true });
+  return {
+    items: response.items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      email: item.email,
+      phone: item.phone,
+      role: toFrontendRole(item.role),
+      active: item.active,
+    })),
+    page: response.page,
+    size: response.size,
+    totalItems: response.totalItems,
+    totalPages: response.totalPages,
+  };
 }
 
 export async function createUserRequest(data: {
@@ -417,19 +498,31 @@ export async function deleteUserRequest(id: string): Promise<UserDeleteResponse>
   });
 }
 
-export async function listClientsRequest(search?: string): Promise<Client[]> {
-  const query = search ? `?search=${encodeURIComponent(search)}` : "";
-  const response = await apiRequest<ClientResponse[]>(`/clients${query}`, { auth: true });
-  return response.map((item) => ({
+export async function listClientsRequest(params: PaginationParams = {}): Promise<PaginatedResult<Client>> {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 0));
+  query.set("size", String(params.size ?? 20));
+  if (params.search?.trim()) {
+    query.set("search", params.search.trim());
+  }
+  const response = await apiRequest<PagedResponse<ClientListItemResponse>>(`/clients?${query.toString()}`, { auth: true });
+  return {
+    items: response.items.map((item) => ({
     id: item.id,
     name: item.name,
     type: "Pessoa Física",
     cpf: item.cpfLast3,
     email: item.email,
     phone: item.phone,
-    createdAt: item.createdAt,
+    caseCount: item.caseCount,
+    createdAt: "",
     createdBy: "",
-  }));
+  })),
+    page: response.page,
+    size: response.size,
+    totalItems: response.totalItems,
+    totalPages: response.totalPages,
+  };
 }
 
 export async function createClientRequest(data: {
@@ -457,6 +550,7 @@ export async function createClientRequest(data: {
     cpf: response.cpfLast3,
     email: response.email,
     phone: response.phone,
+    caseCount: response.caseCount,
     createdAt: response.createdAt,
     createdBy: "",
   };
@@ -490,6 +584,7 @@ export async function updateClientRequest(
     cpf: response.cpfLast3,
     email: response.email,
     phone: response.phone,
+    caseCount: response.caseCount,
     createdAt: response.createdAt,
     createdBy: "",
   };
@@ -502,16 +597,25 @@ export async function deleteClientRequest(id: string): Promise<ClientDeleteRespo
   });
 }
 
-export async function listPartnersRequest(): Promise<Partner[]> {
-  const response = await apiRequest<PartnerResponse[]>("/partners", { auth: true });
-  return response.map((item) => ({
-    id: item.id,
-    name: item.name,
-    email: item.email,
-    phone: item.phone,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-  }));
+export async function listPartnersRequest(params: PaginationParams = {}): Promise<PaginatedResult<Partner>> {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 0));
+  query.set("size", String(params.size ?? 20));
+  const response = await apiRequest<PagedResponse<PartnerListItemResponse>>(`/partners?${query.toString()}`, { auth: true });
+  return {
+    items: response.items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      email: item.email,
+      phone: item.phone,
+      createdAt: "",
+      updatedAt: "",
+    })),
+    page: response.page,
+    size: response.size,
+    totalItems: response.totalItems,
+    totalPages: response.totalPages,
+  };
 }
 
 export async function getPartnerRequest(id: string): Promise<Partner> {
@@ -584,37 +688,86 @@ export async function deletePartnerRequest(id: string): Promise<PartnerDeleteRes
   });
 }
 
-export async function listCasesRequest(search?: string): Promise<CaseData[]> {
+export async function listCasesRequest(params: PaginationParams = {}): Promise<PaginatedResult<CaseData>> {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 0));
+  query.set("size", String(params.size ?? 20));
+  if (params.search?.trim()) {
+    query.set("search", params.search.trim());
+  }
+  const response = await apiRequest<PagedResponse<CaseResponse>>(`/cases?${query.toString()}`, { auth: true });
+  return {
+    items: response.items.map((item) => {
+      const status = toFrontendCaseStatus(item.status);
+      return {
+        id: item.id,
+        code: item.caseNumber || item.id.slice(0, 8).toUpperCase(),
+        title: item.title,
+        subtitle: item.area || "",
+        clientId: item.clientId,
+        partnerId: item.partnerId || undefined,
+        partnerName: item.partnerName || undefined,
+        status,
+        priority: toFrontendCasePriority(item.priority),
+        responsible: "Não definido",
+        team: [],
+        currentStage: 0,
+        nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      };
+    }),
+    page: response.page,
+    size: response.size,
+    totalItems: response.totalItems,
+    totalPages: response.totalPages,
+  };
+}
+
+export async function listDashboardCasesRequest(search?: string): Promise<CaseWithComputed[]> {
   const query = search ? `?search=${encodeURIComponent(search)}` : "";
-  const response = await apiRequest<CaseResponse[]>(`/cases${query}`, { auth: true });
+  const response = await apiRequest<DashboardCaseResponse[]>(`/cases/dashboard${query}`, { auth: true });
   return response.map((item) => {
     const status = toFrontendCaseStatus(item.status);
     return {
       id: item.id,
       code: item.caseNumber || item.id.slice(0, 8).toUpperCase(),
+      caseNumber: item.caseNumber || undefined,
       title: item.title,
       subtitle: item.area || "",
+      currentStatus: item.currentStatus || undefined,
       clientId: item.clientId,
+      clientName: item.clientName,
+      clientType: "Pessoa Física",
       partnerId: item.partnerId || undefined,
       partnerName: item.partnerName || undefined,
       status,
       priority: toFrontendCasePriority(item.priority),
-      responsible: "Não definido",
-      team: [],
+      responsible: item.responsibleName || "Não definido",
+      team: item.teamNames || [],
       currentStage: 0,
       nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
+      progress: item.progress,
+      pendingClient: item.pendingClient,
+      portalActive: item.portalActive,
+      portalExpiry: item.portalExpiresAt ? formatCaseListDate(item.portalExpiresAt) : undefined,
+      lastUpdate: formatCaseListDate(item.updatedAt),
+      stages: [],
+      documents: [],
+      updates: [],
+      checklist: [],
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     };
   });
 }
-
 export async function createCaseRequest(data: {
   clientId: string;
   partnerId?: string;
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string;
   status: CaseStatus;
   priority: CasePriority;
   responsibleUserId?: string;
@@ -628,6 +781,7 @@ export async function createCaseRequest(data: {
       title: data.title,
       caseNumber: data.caseNumber || null,
       area: data.area || null,
+      currentStatus: data.currentStatus || null,
       status: toBackendCaseStatus(data.status),
       priority: toBackendCasePriority(data.priority),
       responsibleUserId: data.responsibleUserId || null,
@@ -637,8 +791,10 @@ export async function createCaseRequest(data: {
   return {
     id: response.id,
     code: response.caseNumber || response.id.slice(0, 8).toUpperCase(),
+    caseNumber: response.caseNumber || undefined,
     title: response.title,
     subtitle: response.area || "",
+    currentStatus: response.currentStatus || undefined,
     clientId: response.clientId,
     partnerId: response.partnerId || undefined,
     partnerName: response.partnerName || undefined,
@@ -655,15 +811,16 @@ export async function createCaseRequest(data: {
 
 export async function updateCaseRequest(
   caseId: string,
-  data: {
-    clientId: string;
-    partnerId?: string;
-    title: string;
-    caseNumber?: string;
-    area?: string;
-    status: CaseStatus;
-    priority: CasePriority;
-    responsibleUserId?: string;
+    data: {
+      clientId: string;
+      partnerId?: string;
+      title: string;
+      caseNumber?: string;
+      area?: string;
+      currentStatus?: string;
+      status: CaseStatus;
+      priority: CasePriority;
+      responsibleUserId?: string;
   },
 ): Promise<CaseData> {
   const response = await apiRequest<CaseResponse>(`/cases/${caseId}`, {
@@ -675,6 +832,7 @@ export async function updateCaseRequest(
       title: data.title,
       caseNumber: data.caseNumber || null,
       area: data.area || null,
+      currentStatus: data.currentStatus || null,
       status: toBackendCaseStatus(data.status),
       priority: toBackendCasePriority(data.priority),
       responsibleUserId: data.responsibleUserId || null,
@@ -684,8 +842,10 @@ export async function updateCaseRequest(
   return {
     id: response.id,
     code: response.caseNumber || response.id.slice(0, 8).toUpperCase(),
+    caseNumber: response.caseNumber || undefined,
     title: response.title,
     subtitle: response.area || "",
+    currentStatus: response.currentStatus || undefined,
     clientId: response.clientId,
     partnerId: response.partnerId || undefined,
     partnerName: response.partnerName || undefined,
@@ -713,6 +873,11 @@ export type CaseDetailPayload = {
   members: CaseMemberResponse[];
 };
 
+export type CaseSummaryPayload = {
+  caseData: CaseData;
+  clientName: string;
+};
+
 export async function listCaseMembersRequest(caseId: string): Promise<CaseMemberResponse[]> {
   return apiRequest<CaseMemberResponse[]>(`/cases/${caseId}/members`, { auth: true });
 }
@@ -734,8 +899,10 @@ export async function getCaseDetailRequest(caseId: string): Promise<CaseDetailPa
     caseData: {
       id: caseResponse.id,
       code: caseResponse.caseNumber || caseResponse.id.slice(0, 8).toUpperCase(),
+      caseNumber: caseResponse.caseNumber || undefined,
       title: caseResponse.title,
       subtitle: caseResponse.area || "",
+      currentStatus: caseResponse.currentStatus || undefined,
       clientId: caseResponse.clientId,
       partnerId: caseResponse.partnerId || undefined,
       partnerName: caseResponse.partnerName || undefined,
@@ -750,6 +917,34 @@ export async function getCaseDetailRequest(caseId: string): Promise<CaseDetailPa
     },
     clientName: caseResponse.clientName,
     members,
+  };
+}
+
+export async function getCaseSummaryRequest(caseId: string): Promise<CaseSummaryPayload> {
+  const caseResponse = await apiRequest<CaseResponse>(`/cases/${caseId}`, { auth: true });
+  const status = toFrontendCaseStatus(caseResponse.status);
+
+  return {
+    caseData: {
+      id: caseResponse.id,
+      code: caseResponse.caseNumber || caseResponse.id.slice(0, 8).toUpperCase(),
+      caseNumber: caseResponse.caseNumber || undefined,
+      title: caseResponse.title,
+      subtitle: caseResponse.area || "",
+      currentStatus: caseResponse.currentStatus || undefined,
+      clientId: caseResponse.clientId,
+      partnerId: caseResponse.partnerId || undefined,
+      partnerName: caseResponse.partnerName || undefined,
+      status,
+      priority: toFrontendCasePriority(caseResponse.priority),
+      responsible: "Não definido",
+      team: [],
+      currentStage: 0,
+      nextAction: status === "concluido" ? "Caso encerrado" : "Aguardando atualização",
+      createdAt: caseResponse.createdAt,
+      updatedAt: caseResponse.updatedAt,
+    },
+    clientName: caseResponse.clientName,
   };
 }
 
@@ -1033,6 +1228,7 @@ export type ClientPortalCase = {
   title: string;
   caseNumber?: string;
   area?: string;
+  currentStatus?: string;
   status: CaseStatus;
   priority: CasePriority;
   updatedAt: string;
@@ -1074,6 +1270,16 @@ export type ClientPortalPatrimonyOriginalDocument = {
   sizeBytes?: number;
 };
 
+export type ClientPortalBootstrap = {
+  me: ClientPortalMe;
+  caseData: ClientPortalCase;
+  documents: ClientPortalDocument[];
+  updates: StaffUpdate[];
+  stages: ClientPortalStage[];
+  patrimony: ClientPortalPatrimony;
+  patrimonyOriginalDocument: ClientPortalPatrimonyOriginalDocument | null;
+};
+
 export async function getClientPortalCaseRequest(sessionToken?: string): Promise<ClientPortalCase> {
   const response = await apiRequest<ClientPortalCaseResponse>("/client-portal/case", {
     includeCredentials: true,
@@ -1084,6 +1290,7 @@ export async function getClientPortalCaseRequest(sessionToken?: string): Promise
     title: response.title,
     caseNumber: response.caseNumber,
     area: response.area,
+    currentStatus: response.currentStatus || undefined,
     status: toFrontendCaseStatus(response.status),
     priority: toFrontendCasePriority(response.priority),
     updatedAt: response.updatedAt,
@@ -1162,6 +1369,112 @@ export async function getClientPortalPatrimonyRequest(sessionToken?: string): Pr
       sortOrder: node.sortOrder,
       isVisibleToClient: true,
     })),
+  };
+}
+
+export async function getClientPortalBootstrapRequest(sessionToken?: string): Promise<ClientPortalBootstrap> {
+  const response = await apiRequest<{
+    me: ClientPortalMeResponse;
+    caseData: ClientPortalCaseResponse;
+    documents: DocumentResponse[];
+    updates: CaseUpdateResponse[];
+    stages: ClientPortalStageResponse[];
+    patrimony: ClientPortalPatrimonyResponse | null;
+    patrimonyOriginalDocument: ClientPortalPatrimonyOriginalDocumentResponse | null;
+  }>("/client-portal/bootstrap", {
+    includeCredentials: true,
+    headers: sessionToken ? { "X-Client-Session": sessionToken } : undefined,
+  });
+
+  return {
+    me: {
+      clientName: response.me.clientName,
+      caseId: response.me.caseId,
+      caseTitle: response.me.caseTitle,
+      caseStatus: toFrontendCaseStatus(response.me.caseStatus),
+      casePriority: toFrontendCasePriority(response.me.casePriority),
+    },
+    caseData: {
+      caseId: response.caseData.caseId,
+      title: response.caseData.title,
+      caseNumber: response.caseData.caseNumber,
+      area: response.caseData.area,
+      currentStatus: response.caseData.currentStatus || undefined,
+      status: toFrontendCaseStatus(response.caseData.status),
+      priority: toFrontendCasePriority(response.caseData.priority),
+      updatedAt: response.caseData.updatedAt,
+      closedAt: response.caseData.closedAt,
+      clientId: response.caseData.clientId,
+      clientName: response.caseData.clientName,
+      responsibleName: response.caseData.responsibleName,
+      responsiblePhone: response.caseData.responsiblePhone,
+    },
+    documents: response.documents.map((item) => ({
+      id: item.id,
+      name: item.originalName,
+      type: item.mimeType || "ARQUIVO",
+      date: item.createdAt,
+      status: item.status === "PENDING" ? "pendente" : "disponivel",
+      sizeBytes: item.sizeBytes,
+    })),
+    updates: response.updates.map((item) => ({
+      id: item.id,
+      content: item.content,
+      createdAt: item.createdAt,
+      author: item.createdByName,
+      internal: false,
+    })),
+    stages: response.stages
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        position: item.position,
+        status: item.status === "DONE" ? "concluido" : item.status === "ACTIVE" ? "em_andamento" : "pendente",
+        updatedAt: item.updatedAt,
+        substeps: (item.substeps ?? [])
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map((substep) => ({
+            id: substep.id,
+            title: substep.title,
+            description: substep.description,
+            position: substep.position,
+            status: substep.status === "DONE" ? "concluido" : substep.status === "IN_PROGRESS" ? "em_andamento" : "pendente",
+            updatedAt: substep.updatedAt,
+          })),
+      })),
+    patrimony: response.patrimony
+      ? {
+          structureId: response.patrimony.structureId,
+          title: response.patrimony.title,
+          status: toFrontendPatrimonyStatus(response.patrimony.status),
+          nodes: response.patrimony.nodes.map((node) => ({
+            id: node.id,
+            structureId: response.patrimony!.structureId,
+            type: toFrontendNodeType(node.type),
+            label: node.label,
+            subtitle: node.subtitle,
+            description: node.description,
+            value: node.value,
+            percentage: node.percentage,
+            location: node.location,
+            parentId: node.parentId,
+            sortOrder: node.sortOrder,
+            isVisibleToClient: true,
+          })),
+        }
+      : null,
+    patrimonyOriginalDocument: response.patrimonyOriginalDocument
+      ? {
+          url: response.patrimonyOriginalDocument.url,
+          name: response.patrimonyOriginalDocument.name,
+          mimeType: response.patrimonyOriginalDocument.mimeType,
+          sizeBytes: response.patrimonyOriginalDocument.sizeBytes,
+        }
+      : null,
   };
 }
 
@@ -1764,3 +2077,4 @@ export async function revokeCasePortalLinkRequest(caseId: string): Promise<Porta
     url: response.url,
   };
 }
+

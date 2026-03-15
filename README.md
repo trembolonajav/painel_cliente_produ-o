@@ -1,82 +1,99 @@
-# Welcome to your Lovable project
+# Painel do Cliente
 
-## Project info
+Aplicacao web para operacao interna e acompanhamento de casos por clientes, com area administrativa, portal do cliente, backend API, banco PostgreSQL e storage de documentos.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Visao geral
 
-## How can I edit this code?
+O projeto esta organizado em um unico repositorio com:
 
-There are several ways of editing your application.
+- frontend React/Vite na raiz
+- backend Spring Boot em [`backend`](backend/)
+- banco PostgreSQL
+- storage S3-compatible via Cloudflare R2 em producao
 
-**Use Lovable**
+O fluxo principal atende dois perfis:
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+- equipe interna: autenticacao, gestao de casos, clientes, parceiros, usuarios, documentos, etapas e patrimonio
+- cliente final: acesso ao portal por link temporario para acompanhar caso, etapas, documentos e estrutura patrimonial visivel
 
-Changes made via Lovable will be committed automatically to this repo.
+## Stack utilizada
 
-**Use your preferred IDE**
+- Frontend: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, React Query
+- Backend: Java 21, Spring Boot 3, Spring Security, Spring Data JPA, Flyway
+- Banco: PostgreSQL
+- Storage: Cloudflare R2
+- Deploy: Vercel (frontend) e Railway (backend)
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Modulos principais
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+- autenticacao administrativa
+- dashboard administrativo de casos
+- cadastro e manutencao de clientes
+- cadastro e manutencao de parceiros
+- cadastro e manutencao de usuarios internos
+- detalhamento operacional de casos
+- portal do cliente com sessao temporaria
+- upload e download seguro de documentos
+- estrutura patrimonial com visibilidade controlada ao cliente
 
-Follow these steps:
+## Arquitetura resumida
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+- o frontend consome a API HTTP do backend por meio da variavel `VITE_API_URL`
+- o backend centraliza autenticacao, regras de acesso, persistencia e geracao de links temporarios
+- o PostgreSQL armazena dados operacionais, sessoes, links, auditoria e workflow
+- o Cloudflare R2 armazena documentos e atende download/upload por URLs assinadas
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+Documentacao complementar:
 
-# Step 3: Install the necessary dependencies.
-npm i
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/environment.md`](docs/environment.md)
+- [`docs/deploy.md`](docs/deploy.md)
+- [`docs/handoff.md`](docs/handoff.md)
+- [`docs/checklist-entrega.md`](docs/checklist-entrega.md)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+## Estrutura principal
+
+```text
+.
+|-- backend/               # API Spring Boot, migracoes Flyway e configuracoes de deploy
+|-- public/                # ativos publicos do frontend
+|-- src/                   # aplicacao frontend
+|-- docs/                  # documentacao operacional e handoff
+|-- vercel.json            # configuracao de deploy do frontend
+`-- package.json           # scripts do frontend
+```
+
+## Execucao local
+
+### Frontend
+
+```bash
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Por padrao, o frontend espera a API configurada por `VITE_API_URL`. Em ambiente local, a URL deve apontar para a API Spring Boot em execucao.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Backend
 
-**Use GitHub Codespaces**
+Consulte o guia resumido em [`backend/README.md`](backend/README.md). O backend utiliza PostgreSQL e executa migracoes Flyway no startup.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Deploy resumido
 
-## What technologies are used for this project?
+- frontend publicado na Vercel a partir da raiz do repositorio
+- backend publicado na Railway a partir da pasta `backend`
+- banco PostgreSQL hospedado na Railway
+- documentos hospedados no Cloudflare R2
 
-This project is built with:
+A documentacao detalhada de publicacao, ordem de configuracao e validacoes esta em [`docs/deploy.md`](docs/deploy.md).
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Operacao e manutencao
 
-## How can I deploy this project?
+- manter coerencia entre `VITE_API_URL`, `CORS_ALLOWED_ORIGINS` e `APP_FRONTEND_BASE_URL`
+- garantir que as credenciais de banco e storage sejam gerenciadas fora do repositorio
+- validar deploy sempre pelos endpoints de saude, login e fluxos principais
+- usar `main` como referencia de producao e `dev` como referencia de desenvolvimento
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Continuidade
 
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
-
-## Status atual (integracao completa)
-
-- Backend Spring Boot integrado ao frontend.
-- Banco PostgreSQL via Docker Compose (`backend/docker-compose.yml`).
-- Fluxos de autenticacao e API conectados.
-- Portal do cliente operando com API real (sem mock como fonte de verdade).
-- Estrutura patrimonial do portal com acesso real ao documento original (download/abertura).
-- Base pronta para operacao de producao.
+Este repositorio foi preparado para handoff tecnico. O documento principal de continuidade esta em [`docs/handoff.md`](docs/handoff.md).

@@ -138,6 +138,17 @@ public class ClientPortalSessionService {
     @Transactional(readOnly = true)
     public ClientPortalMeResponse me(HttpServletRequest request) {
         ClientPortalSession session = resolveSessionOrThrow(request);
+        return meFromSession(session);
+    }
+
+    @Transactional(readOnly = true)
+    public ClientPortalCaseResponse caseDetails(HttpServletRequest request) {
+        ClientPortalSession session = resolveSessionOrThrow(request);
+        return caseDetailsFromSession(session);
+    }
+
+    @Transactional(readOnly = true)
+    public ClientPortalMeResponse meFromSession(ClientPortalSession session) {
         return new ClientPortalMeResponse(
                 session.getClient().getName(),
                 session.getCaseFile().getId(),
@@ -147,8 +158,7 @@ public class ClientPortalSessionService {
     }
 
     @Transactional(readOnly = true)
-    public ClientPortalCaseResponse caseDetails(HttpServletRequest request) {
-        ClientPortalSession session = resolveSessionOrThrow(request);
+    public ClientPortalCaseResponse caseDetailsFromSession(ClientPortalSession session) {
         var c = session.getCaseFile();
         var cl = session.getClient();
         var owner = caseMemberRepository.findByCaseFile_IdAndPermission(c.getId(), CaseMemberPermission.OWNER)
@@ -158,6 +168,7 @@ public class ClientPortalSessionService {
                 c.getTitle(),
                 c.getCaseNumber(),
                 c.getArea(),
+                c.getCurrentStatus(),
                 c.getStatus(),
                 c.getPriority(),
                 c.getUpdatedAt(),

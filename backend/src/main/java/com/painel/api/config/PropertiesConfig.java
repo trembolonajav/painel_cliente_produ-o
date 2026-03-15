@@ -12,7 +12,8 @@ import org.springframework.context.annotation.Configuration;
         CorsProperties.class,
         PortalProperties.class,
         DocumentProperties.class,
-        StorageProperties.class
+        StorageProperties.class,
+        ObservabilityProperties.class
 })
 public class PropertiesConfig {
 }

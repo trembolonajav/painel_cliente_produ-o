@@ -5,11 +5,8 @@ import com.painel.api.audit.AuditActorType;
 import com.painel.api.audit.AuditService;
 import com.painel.api.casefile.CaseFile;
 import com.painel.api.casefile.CaseFileRepository;
-import com.painel.api.casefile.CaseStatus;
+import com.painel.api.casefile.CaseStatusResolver;
 import com.painel.api.common.NotFoundException;
-import com.painel.api.common.Visibility;
-import com.painel.api.document.DocumentRepository;
-import com.painel.api.document.DocumentStatus;
 import com.painel.api.user.OfficeUser;
 import com.painel.api.user.OfficeUserRepository;
 import java.time.OffsetDateTime;
@@ -28,7 +25,7 @@ public class CaseWorkflowService {
     private final CaseStageSubstepRepository caseStageSubstepRepository;
     private final CaseTaskRepository caseTaskRepository;
     private final CaseFileRepository caseFileRepository;
-    private final DocumentRepository documentRepository;
+    private final CaseStatusResolver caseStatusResolver;
     private final OfficeUserRepository officeUserRepository;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
@@ -38,7 +35,7 @@ public class CaseWorkflowService {
             CaseStageSubstepRepository caseStageSubstepRepository,
             CaseTaskRepository caseTaskRepository,
             CaseFileRepository caseFileRepository,
-            DocumentRepository documentRepository,
+            CaseStatusResolver caseStatusResolver,
             OfficeUserRepository officeUserRepository,
             AuthorizationService authorizationService,
             AuditService auditService) {
@@ -46,7 +43,7 @@ public class CaseWorkflowService {
         this.caseStageSubstepRepository = caseStageSubstepRepository;
         this.caseTaskRepository = caseTaskRepository;
         this.caseFileRepository = caseFileRepository;
-        this.documentRepository = documentRepository;
+        this.caseStatusResolver = caseStatusResolver;
         this.officeUserRepository = officeUserRepository;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
@@ -418,53 +415,7 @@ public class CaseWorkflowService {
     }
 
     private void refreshCaseStatus(CaseFile caseFile) {
-        CaseStatus nextStatus = resolveCaseStatus(caseFile.getId());
-        if (caseFile.getStatus() == nextStatus) {
-            return;
-        }
-        caseFile.setStatus(nextStatus);
-        if (nextStatus == CaseStatus.CLOSED && caseFile.getClosedAt() == null) {
-            caseFile.setClosedAt(OffsetDateTime.now());
-        } else if (nextStatus != CaseStatus.CLOSED) {
-            caseFile.setClosedAt(null);
-        }
+        caseStatusResolver.refresh(caseFile);
         caseFileRepository.save(caseFile);
-    }
-
-    private CaseStatus resolveCaseStatus(UUID caseId) {
-        List<CaseStage> stages = caseStageRepository.findByCaseFile_IdOrderByPositionAsc(caseId);
-        int totalUnits = 0;
-        int completedUnits = 0;
-
-        for (CaseStage stage : stages) {
-            List<CaseStageSubstep> substeps = caseStageSubstepRepository.findByStage_IdOrderByPositionAsc(stage.getId());
-            if (!substeps.isEmpty()) {
-                totalUnits += substeps.size();
-                completedUnits += (int) substeps.stream()
-                        .filter(substep -> substep.getStatus() == CaseStageSubstepStatus.DONE)
-                        .count();
-            } else {
-                totalUnits += 1;
-                if (stage.getStatus() == CaseStageStatus.DONE) {
-                    completedUnits += 1;
-                }
-            }
-        }
-
-        if (totalUnits > 0 && completedUnits == totalUnits) {
-            return CaseStatus.CLOSED;
-        }
-
-        boolean waitingClient = documentRepository
-                .findByCaseFile_IdAndVisibilityAndStatusOrderByCreatedAtDesc(caseId, Visibility.CLIENT_VISIBLE, DocumentStatus.PENDING)
-                .stream()
-                .findAny()
-                .isPresent();
-
-        if (waitingClient) {
-            return CaseStatus.WAITING_CLIENT;
-        }
-
-        return CaseStatus.IN_PROGRESS;
     }
 }

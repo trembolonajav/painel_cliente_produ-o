@@ -41,6 +41,9 @@ public class CaseFile {
     @Column(length = 80)
     private String area;
 
+    @Column(name = "current_status", length = 2000)
+    private String currentStatus;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private CaseStatus status = CaseStatus.OPEN;
@@ -88,6 +91,8 @@ public class CaseFile {
     public void setCaseNumber(String caseNumber) { this.caseNumber = caseNumber; }
     public String getArea() { return area; }
     public void setArea(String area) { this.area = area; }
+    public String getCurrentStatus() { return currentStatus; }
+    public void setCurrentStatus(String currentStatus) { this.currentStatus = currentStatus; }
     public CaseStatus getStatus() { return status; }
     public void setStatus(CaseStatus status) { this.status = status; }
     public CasePriority getPriority() { return priority; }

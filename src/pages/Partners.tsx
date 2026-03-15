@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   Briefcase, Users, Shield, Handshake, LogOut, Plus, Mail, Phone, Edit2, Trash2,
@@ -7,6 +8,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getItem } from "@/services/storage";
 import { createPartnerRequest, deletePartnerRequest, listPartnersRequest, updatePartnerRequest } from "@/services/backend";
+import type { PaginatedResult } from "@/services/backend";
 import type { OfficeSettings, Partner } from "@/types";
 import abrLogo from "@/assets/abr-logo.png";
 import {
@@ -27,6 +29,7 @@ type FormErrors = {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PAGE_SIZE = 10;
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
 
@@ -58,7 +61,10 @@ const formatStoredPhone = (value?: string) => {
   return value ?? "";
 };
 
+const buildPartnersQueryKey = (page: number) => ["partners", page, PAGE_SIZE] as const;
+
 const Partners = () => {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user, logout, can } = useAuth();
   const office = getItem<OfficeSettings>("office_settings");
@@ -68,17 +74,47 @@ const Partners = () => {
   const [saving, setSaving] = useState(false);
   const [deletingPartnerId, setDeletingPartnerId] = useState<string | null>(null);
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalItems, setTotalItems] = useState(0);
 
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
-  const loadPartners = async () => {
+  const updatePartnersCache = (
+    targetPage: number,
+    updater: (current: Partner[]) => Partner[],
+    nextTotalItems = totalItems,
+    nextTotalPages = totalPages,
+  ) => {
+    const queryKey = buildPartnersQueryKey(targetPage);
+    setPartners((current) => updater(current));
+    queryClient.setQueryData<PaginatedResult<Partner>>(queryKey, (cached) =>
+      cached
+        ? {
+            ...cached,
+            items: updater(cached.items),
+            totalItems: nextTotalItems,
+            totalPages: nextTotalPages,
+          }
+        : cached,
+    );
+    setTotalItems(nextTotalItems);
+    setTotalPages(nextTotalPages);
+  };
+
+  const loadPartners = async (targetPage = page) => {
     setLoading(true);
     try {
-      const data = await listPartnersRequest();
-      setPartners(data);
+      const data = await queryClient.fetchQuery({
+        queryKey: ["partners", targetPage, PAGE_SIZE],
+        queryFn: () => listPartnersRequest({ page: targetPage, size: PAGE_SIZE }),
+      });
+      setPartners(data.items);
+      setTotalPages(data.totalPages);
+      setTotalItems(data.totalItems);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao carregar parceiros.");
     } finally {
@@ -87,13 +123,8 @@ const Partners = () => {
   };
 
   useEffect(() => {
-    loadPartners();
-  }, []);
-
-  const sortedPartners = useMemo(
-    () => partners.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
-    [partners],
-  );
+    void loadPartners();
+  }, [page]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -138,23 +169,41 @@ const Partners = () => {
     setSaving(true);
     try {
       if (editingId) {
-        await updatePartnerRequest(editingId, {
+        const updatedPartner = await updatePartnerRequest(editingId, {
           name: trimmedName,
           email: trimmedEmail,
           phone: phoneDigits,
         });
+        updatePartnersCache(page, (current) =>
+          current.map((item) => (item.id === editingId ? updatedPartner : item)),
+        );
         toast.success("Parceiro atualizado");
       } else {
-        await createPartnerRequest({
+        const createdPartner = await createPartnerRequest({
           name: trimmedName,
           email: trimmedEmail,
           phone: phoneDigits,
         });
+        if (page === 0) {
+          const nextTotalItems = totalItems + 1;
+          const nextTotalPages = Math.max(1, Math.ceil(nextTotalItems / PAGE_SIZE));
+          updatePartnersCache(
+            0,
+            (current) => [createdPartner, ...current].slice(0, PAGE_SIZE),
+            nextTotalItems,
+            nextTotalPages,
+          );
+        }
         toast.success("Parceiro criado");
       }
+
+      await queryClient.invalidateQueries({ queryKey: ["partners"], refetchType: "none" });
       setShowForm(false);
       resetForm();
-      await loadPartners();
+
+      if (!editingId && page !== 0) {
+        setPage(0);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao salvar parceiro.");
     } finally {
@@ -172,8 +221,22 @@ const Partners = () => {
     try {
       const result = await deletePartnerRequest(deletingPartnerId);
       toast.success(result.message);
+      await queryClient.invalidateQueries({ queryKey: ["partners"], refetchType: "none" });
+      const nextPage = page > 0 && partners.length === 1 ? page - 1 : page;
+      if (nextPage === page) {
+        const nextTotalItems = Math.max(totalItems - 1, 0);
+        const nextTotalPages = nextTotalItems === 0 ? 0 : Math.ceil(nextTotalItems / PAGE_SIZE);
+        updatePartnersCache(
+          page,
+          (current) => current.filter((item) => item.id !== deletingPartnerId),
+          nextTotalItems,
+          nextTotalPages,
+        );
+      }
       setDeletingPartnerId(null);
-      await loadPartners();
+      if (nextPage !== page) {
+        setPage(nextPage);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao excluir parceiro.");
     }
@@ -278,15 +341,7 @@ const Partners = () => {
                 <button onClick={handleSave} className="btn-gold px-4 py-2 text-sm" disabled={saving}>
                   {saving ? "Salvando..." : "Salvar"}
                 </button>
-                <button
-                  onClick={() => {
-                    setShowForm(false);
-                    resetForm();
-                  }}
-                  className="px-4 py-2 text-sm border rounded-lg text-muted-foreground hover:text-foreground"
-                >
-                  Cancelar
-                </button>
+                <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm border rounded-lg text-muted-foreground hover:text-foreground">Cancelar</button>
               </div>
             </div>
           )}
@@ -294,7 +349,7 @@ const Partners = () => {
           {loading && <div className="text-sm text-muted-foreground">Carregando parceiros...</div>}
 
           <div className="space-y-3">
-            {sortedPartners.map((partner) => (
+            {partners.map((partner) => (
               <div key={partner.id} className="bg-card rounded-xl border p-5 flex items-center gap-4 hover:shadow-sm transition-shadow">
                 <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground shrink-0">
                   {partner.name.charAt(0)}
@@ -328,7 +383,31 @@ const Partners = () => {
             ))}
           </div>
 
-          {!loading && sortedPartners.length === 0 && (
+          {!loading && totalPages > 1 && (
+            <div className="flex items-center justify-between gap-3 border-t pt-4">
+              <p className="text-sm text-muted-foreground">
+                Página {page + 1} de {totalPages} · {totalItems} parceiro{totalItems !== 1 ? "s" : ""}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((prev) => Math.max(prev - 1, 0))}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <button
+                  onClick={() => setPage((prev) => Math.min(prev + 1, Math.max(totalPages - 1, 0)))}
+                  disabled={page + 1 >= totalPages}
+                  className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50"
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!loading && partners.length === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <Handshake className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p>Nenhum parceiro encontrado.</p>
@@ -344,7 +423,7 @@ const Partners = () => {
             <AlertDialogDescription>
               Essa ação é permanente e não poderá ser desfeita.
               <br />
-              Parceiro: o cadastro será removido definitivamente.
+              Parceiro: vínculos relacionados podem ser afetados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

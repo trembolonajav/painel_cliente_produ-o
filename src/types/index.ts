@@ -24,9 +24,10 @@ export interface Client {
   id: string;
   name: string;
   type: "Pessoa Física" | "Pessoa Jurídica";
-  cpf?: string; // last 3 digits for portal verification
+  cpf?: string; // first 3 digits for portal verification
   email?: string;
   phone?: string;
+  caseCount: number;
   createdAt: string;
   createdBy: string;
 }
@@ -46,8 +47,10 @@ export type CasePriority = "alta" | "media" | "baixa";
 export interface CaseData {
   id: string;
   code: string;
+  caseNumber?: string;
   title: string;
   subtitle: string;
+  currentStatus?: string;
   clientId: string;
   partnerId?: string;
   partnerName?: string;

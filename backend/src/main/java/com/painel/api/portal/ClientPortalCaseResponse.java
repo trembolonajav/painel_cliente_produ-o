@@ -10,6 +10,7 @@ public record ClientPortalCaseResponse(
         String title,
         String caseNumber,
         String area,
+        String currentStatus,
         CaseStatus status,
         CasePriority priority,
         OffsetDateTime updatedAt,

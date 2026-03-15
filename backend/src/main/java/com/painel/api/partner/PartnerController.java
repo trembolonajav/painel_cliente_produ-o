@@ -1,8 +1,8 @@
 package com.painel.api.partner;
 
+import com.painel.api.common.PagedResponse;
 import com.painel.api.user.OfficeUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,8 +29,11 @@ public class PartnerController {
 
     @GetMapping
     @ResponseStatus(HttpStatus.OK)
-    public List<PartnerResponse> list(@AuthenticationPrincipal OfficeUser actor) {
-        return partnerService.list(actor);
+    public PagedResponse<PartnerListItemResponse> list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return partnerService.list(page, size, actor);
     }
 
     @GetMapping("/{id}")
