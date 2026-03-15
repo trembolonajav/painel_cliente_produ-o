@@ -21,6 +21,7 @@ import type { PatrimonyNodeData, PatrimonyNodeType, PatrimonyStructureData } fro
 import {
   createNode,
   createStructure,
+  deleteOriginalDocument,
   getNodes,
   getStructures,
   getOriginalDocumentDownloadUrl,
@@ -334,16 +335,8 @@ export default function PatrimonyBuilder({ caseId, userId, canWrite }: Props) {
                   </label>
                   <button
                     onClick={async () => {
-                      await updateStructure(
-                        structure.id,
-                        {
-                          originalDocumentName: undefined,
-                          originalDocumentMimeType: undefined,
-                          originalDocumentSizeBytes: undefined,
-                          originalDocumentStorageKey: undefined,
-                        },
-                        userId,
-                      );
+                      await deleteOriginalDocument(structure.id);
+                      toast.success("Documento original removido");
                       refresh();
                     }}
                     className="text-xs text-destructive hover:underline"

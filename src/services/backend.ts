@@ -2026,6 +2026,14 @@ export async function getPatrimonyOriginalDocumentDownloadUrlRequest(structureId
   return response.url;
 }
 
+export async function deletePatrimonyOriginalDocumentRequest(structureId: string): Promise<PatrimonyStructureDto> {
+  const response = await apiRequest<Exclude<PatrimonyStructureResponse, null>>(`/patrimony/structures/${structureId}/original-document`, {
+    method: "DELETE",
+    auth: true,
+  });
+  return toStructureDto(response);
+}
+
 export type PortalLinkState = {
   id: string | null;
   status: PortalLinkStatus | null;
