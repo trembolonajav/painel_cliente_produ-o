@@ -2,6 +2,7 @@
 import {
   createCasePatrimonyStructureRequest,
   createPatrimonyNodeRequest,
+  deletePatrimonyOriginalDocumentRequest,
   deletePatrimonyNodeRequest,
   getCasePatrimonyStructureRequest,
   listPatrimonyNodesRequest,
@@ -180,6 +181,26 @@ export async function uploadOriginalDocument(structureId: string, file: File): P
 
 export async function getOriginalDocumentDownloadUrl(structureId: string): Promise<string> {
   return getPatrimonyOriginalDocumentDownloadUrlRequest(structureId);
+}
+
+export async function deleteOriginalDocument(structureId: string): Promise<PatrimonyStructureData> {
+  const structure = await deletePatrimonyOriginalDocumentRequest(structureId);
+  return {
+    id: structure.id,
+    caseId: structure.caseId,
+    title: structure.title,
+    status: structure.status,
+    version: structure.version,
+    notesInternal: structure.notesInternal,
+    notesClient: structure.notesClient,
+    originalDocumentName: structure.originalDocumentName,
+    originalDocumentMimeType: structure.originalDocumentMimeType,
+    originalDocumentSizeBytes: structure.originalDocumentSizeBytes,
+    originalDocumentStorageKey: structure.originalDocumentStorageKey,
+    originalDocumentVisibleToClient: structure.originalDocumentVisibleToClient,
+    createdAt: structure.createdAt,
+    updatedAt: structure.updatedAt,
+  };
 }
 
 export function buildTree(nodes: PatrimonyNodeData[]): (PatrimonyNodeData & { children: PatrimonyNodeData[] })[] {

@@ -73,6 +73,7 @@ public class PatrimonyService {
         PatrimonyStructure structure = structureRepository.findById(structureId)
                 .orElseThrow(() -> new NotFoundException("Estrutura patrimonial nao encontrada"));
         authorizationService.requireCaseWriteAccess(actor, structure.getCaseFile().getId());
+        String previousStorageKey = structure.getOriginalDocumentStorageKey();
 
         if (request.title() != null) structure.setTitle(request.title().trim());
         if (request.status() != null) structure.setStatus(request.status());
@@ -85,7 +86,8 @@ public class PatrimonyService {
         if (request.originalDocumentStorageKey() != null) structure.setOriginalDocumentStorageKey(request.originalDocumentStorageKey());
         if (request.originalDocumentVisibleToClient() != null) structure.setOriginalDocumentVisibleToClient(request.originalDocumentVisibleToClient());
 
-        PatrimonyStructure saved = structureRepository.save(structure);
+        PatrimonyStructure saved = structureRepository.saveAndFlush(structure);
+        deletePreviousOriginalDocumentIfReplaced(previousStorageKey, saved.getOriginalDocumentStorageKey());
         auditService.log(AuditActorType.OFFICE_USER, actor.getId(), "PATRIMONY_STRUCTURE", saved.getId(), "UPDATE");
         return toStructureResponse(saved);
     }
@@ -162,6 +164,50 @@ public class PatrimonyService {
             throw new NotFoundException("Documento original nao anexado");
         }
         return new PatrimonyDownloadLinkResponse(storageService.createDownloadUrl(structure.getOriginalDocumentStorageKey()));
+    }
+
+    @Transactional
+    public PatrimonyStructureResponse deleteOriginalDocument(UUID structureId, OfficeUser actor) {
+        PatrimonyStructure structure = structureRepository.findById(structureId)
+                .orElseThrow(() -> new NotFoundException("Estrutura patrimonial nao encontrada"));
+        authorizationService.requireCaseWriteAccess(actor, structure.getCaseFile().getId());
+
+        String previousStorageKey = structure.getOriginalDocumentStorageKey();
+        clearOriginalDocument(structure);
+
+        PatrimonyStructure saved = structureRepository.saveAndFlush(structure);
+        if (previousStorageKey != null && !previousStorageKey.isBlank()) {
+            storageService.deleteObject(previousStorageKey);
+        }
+
+        auditService.log(
+                AuditActorType.OFFICE_USER,
+                actor.getId(),
+                "PATRIMONY_STRUCTURE",
+                saved.getId(),
+                "ORIGINAL_DOC_DELETE",
+                Map.of("hadStorageKey", previousStorageKey != null && !previousStorageKey.isBlank()));
+        return toStructureResponse(saved);
+    }
+
+    private void deletePreviousOriginalDocumentIfReplaced(String previousStorageKey, String currentStorageKey) {
+        if (previousStorageKey == null || previousStorageKey.isBlank()) {
+            return;
+        }
+        if (currentStorageKey == null || currentStorageKey.isBlank()) {
+            return;
+        }
+        if (previousStorageKey.equals(currentStorageKey)) {
+            return;
+        }
+        storageService.deleteObject(previousStorageKey);
+    }
+
+    private void clearOriginalDocument(PatrimonyStructure structure) {
+        structure.setOriginalDocumentName(null);
+        structure.setOriginalDocumentMimeType(null);
+        structure.setOriginalDocumentSizeBytes(null);
+        structure.setOriginalDocumentStorageKey(null);
     }
 
     private void collectIds(UUID nodeId, List<PatrimonyNode> all, Set<UUID> ids) {

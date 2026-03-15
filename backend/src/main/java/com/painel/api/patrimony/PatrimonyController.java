@@ -103,4 +103,12 @@ public class PatrimonyController {
             @AuthenticationPrincipal OfficeUser actor) {
         return patrimonyService.getOriginalDocumentDownloadLink(structureId, actor);
     }
+
+    @DeleteMapping("/patrimony/structures/{structureId}/original-document")
+    @ResponseStatus(HttpStatus.OK)
+    public PatrimonyStructureResponse deleteOriginalDocument(
+            @PathVariable UUID structureId,
+            @AuthenticationPrincipal OfficeUser actor) {
+        return patrimonyService.deleteOriginalDocument(structureId, actor);
+    }
 }
